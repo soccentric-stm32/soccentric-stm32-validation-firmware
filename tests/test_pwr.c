@@ -273,7 +273,7 @@ static void rtc_wut_disarm(void)
     EXTI->IMR &= ~EXTI_IMR_MR22;
 }
 
-static void lse_needed_stub(void)
+static void lse_needed_for_rtc(void)
 {
     (void)lse_ready_wait();
     RTC->WPR = 0xCAU; RTC->WPR = 0x53U;
@@ -283,7 +283,7 @@ static void lse_needed_stub(void)
 
 static tfw_result_t pwr_stop(struct tfw_out *o)
 {
-    lse_needed_stub(); /* LSE on for the RTC waker */
+    lse_needed_for_rtc(); /* LSE on for the RTC waker */
     (void)rtc_wut_arm(2U);
     NVIC_SetPriority(RTC_WKUP_IRQn, 6);
     NVIC_EnableIRQ(RTC_WKUP_IRQn);
@@ -330,7 +330,7 @@ static tfw_result_t pwr_standby(struct tfw_out *o)
     RTC->BKP2R = TFW_PASS;
     RTC->WPR = 0xFFU;
 
-    lse_needed_stub();
+    lse_needed_for_rtc();
     (void)rtc_wut_arm(2U);
     /* clear WUF + flags, enable WKUP, set PDDS */
     RTC->ISR = RTC_ISR_WUTF;             /* W1C */

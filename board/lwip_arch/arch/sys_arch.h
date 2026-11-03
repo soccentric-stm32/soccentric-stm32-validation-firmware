@@ -1,5 +1,5 @@
 /*
- * board/lwip_arch/arch/sys_arch.h - minimal NO_SYS stub (ETH-007)
+ * board/lwip_arch/arch/sys_arch.h - minimal NO_SYS header (ETH-007)
  *
  * Author:  Sandesh Ghimire <sandesh@soccentric.com>
  * Date:    2026-11-03
