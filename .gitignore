@@ -129,3 +129,5 @@ TAGS
 # even though it matches the binary-artifact patterns above.
 !backup/**
 !backup/
+# host-tool reports (generated)
+reports/
