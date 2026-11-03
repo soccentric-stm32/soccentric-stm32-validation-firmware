@@ -77,6 +77,7 @@ void hwval_test_register_led_btn(void);
 void hwval_test_register_adc(void);
 void hwval_test_register_dac(void);
 void hwval_test_register_tim(void);
+void hwval_test_register_uart(void);
 
 size_t hwval_test_count(void);
 const struct tfw_case *hwval_test_at(size_t index);

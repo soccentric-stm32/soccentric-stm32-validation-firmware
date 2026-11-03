@@ -138,6 +138,7 @@ list(APPEND PROJECT_SOURCES   tests/test_led_btn.c)
 list(APPEND PROJECT_SOURCES   tests/test_adc.c)
 list(APPEND PROJECT_SOURCES   tests/test_dac.c)
 list(APPEND PROJECT_SOURCES   tests/test_tim.c)
+list(APPEND PROJECT_SOURCES   tests/test_uart.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
