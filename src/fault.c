@@ -20,6 +20,9 @@
 static hwval_taskname_fn_t s_taskname;
 static volatile hwval_fault_action_t s_action = HWVAL_FAULT_HALT;
 
+volatile int g_assert_line;
+volatile const char *g_assert_file;
+
 #define FAULT_RECORD_MAGIC 0x4856464CU /* "HVFL" */
 __attribute__((section(".noinit")))
 static hwval_fault_record_t s_record; /* survives the handler's reset */
@@ -168,6 +171,10 @@ void hwval_fault_assert(const char *file, int line)
 {
     char msg[128];
 
+    /* Bench diagnostics (read with gdb/OpenOCD; also visible when the VCP
+     * TX bridge is closed): */
+    g_assert_line = line;
+    g_assert_file = file;
     (void)snprintf(msg, sizeof(msg), "configASSERT %s:%d\r\n", file, line);
     hwval_uart3_write(msg, 0U);
     if (s_action == HWVAL_FAULT_RESET) {

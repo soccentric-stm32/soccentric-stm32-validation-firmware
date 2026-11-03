@@ -11,6 +11,8 @@
 #include "stm32f7xx_hal.h"
 #include "hwval_board.h"
 #include "uart3.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 static int s_ready;
 
@@ -28,14 +30,68 @@ void hwval_uart3_init(void)
     io.Alternate = GPIO_AF7_USART3;
     HAL_GPIO_Init(GPIOD, &io);
 
+    NVIC_SetPriority(USART3_IRQn, 6); /* >= configMAX_SYSCALL (FRT-008) */
+    NVIC_EnableIRQ(USART3_IRQn);
+
     USART3->CR1 = 0U; /* disabled while configuring */
     USART3->BRR = (HAL_RCC_GetPCLK1Freq() + (HWVAL_VCP_BAUD / 2U)) /
                    HWVAL_VCP_BAUD;
     USART3->CR2 = 0U; /* 1 stop bit */
-    USART3->CR3 = 0U; /* no flow control */
-    USART3->CR1 = USART_CR1_TE | USART_CR1_UE; /* TX first, 8 data bits */
+    USART3->CR3 = 0U; /* no flow control; driver DMA lands in section 6 */
+    USART3->RQR = USART_RQR_RXFRQ; /* drop any stale bytes */
+    USART3->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_RXNEIE |
+                  USART_CR1_UE;    /* interrupt-driven RX (CLI-002) */
 
     s_ready = 1;
+}
+
+/* --- RX ring buffer (CLI-002: >= 512 bytes, no loss on paste) ------------- */
+#define RX_RING_SIZE 512U
+static volatile uint8_t  s_rx_ring[RX_RING_SIZE];
+static volatile uint16_t s_rx_head; /* ISR writes */
+static volatile uint16_t s_rx_tail; /* task reads */
+
+void USART3_IRQHandler(void)
+{
+    uint32_t isr = USART3->ISR;
+
+    if ((isr & USART_ISR_RXNE) != 0U) {
+        uint16_t next = (uint16_t)((s_rx_head + 1U) % RX_RING_SIZE);
+        uint8_t  data = (uint8_t)USART3->RDR;
+
+        s_rx_ring[s_rx_head] = data;
+        if (next != s_rx_tail) {
+            s_rx_head = next; /* drop newest on overflow, flags in section 6 */
+        }
+    }
+    if ((isr & USART_ISR_ORE) != 0U) {
+        USART3->ICR = USART_ICR_ORECF; /* overrun: recover, reader drains */
+    }
+}
+
+int hwval_uart3_getc(void)
+{
+    uint16_t head;
+    uint8_t  c;
+
+    taskENTER_CRITICAL();
+    {
+        head = s_rx_head;
+        if (head == s_rx_tail) {
+            taskEXIT_CRITICAL();
+            return -1;
+        }
+        c = s_rx_ring[s_rx_tail];
+        s_rx_tail = (uint16_t)((s_rx_tail + 1U) % RX_RING_SIZE);
+    }
+    taskEXIT_CRITICAL();
+    return (int)c;
+}
+
+void hwval_uart3_rx_wakeup(void)
+{
+    /* Section 6 gives a semaphore here on RXNE; section 5 polls from the
+     * CLI task instead. */
 }
 
 int hwval_uart3_ready(void) { return s_ready; }

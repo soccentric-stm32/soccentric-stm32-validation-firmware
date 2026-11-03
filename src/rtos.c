@@ -1,0 +1,202 @@
+/*
+ * rtos.c - FreeRTOS bring-up and hooks (FRT-003..FRT-010)
+ *
+ * Author:  Sandesh Ghimire <sandesh@soccentric.com>
+ * Date:    2026-11-02
+ * Target:  STM32F767ZIT6, FreeRTOS ARM_CM7 GCC port (FRT-001)
+ * SRS:     section 5. SysTick is the kernel tick (FRT-002); the HAL keeps
+ *          TIM6 (GEN-012). Both handlers coexist: the port defines
+ *          SysTick_Handler -> xPortSysTickHandler; TIM6 has its own vector.
+ */
+
+#include <stdio.h>
+#include "FreeRTOS.h"
+#include "task.h"
+#include "stm32f7xx_hal.h"
+#include "hwval_board.h"
+#include "rtos.h"
+#include "test_core.h"
+#include "uart3.h"
+#include "fault.h"
+#include "version.h"
+#include "iwdg.h"
+
+static void hwval_panic_report(void);
+
+/* Panic marker for hooks that end in a reset; reported at the next boot
+ * from .noinit. */
+#define HWVAL_PANIC_MAGIC   0x50414E49U /* "PANI" */
+#define HWVAL_PANIC_OVERFLOW 1U
+#define HWVAL_PANIC_MALLOC    2U
+
+__attribute__((section(".noinit")))
+static struct {
+    uint32_t magic;
+    uint32_t code;
+} s_panic;
+
+void hwval_rtos_report_panic(void)
+{
+    hwval_panic_report();
+}
+
+void hwval_dwt_stats_init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->LAR   = 0xC5ACCE55U; /* CM7 r1p0 lock access register */
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+uint32_t hwval_dwt_now(void) { return DWT->CYCCNT; }
+
+const char *hwval_freertos_version(void) { return HWVAL_FREERTOS_VERSION; }
+uint32_t hwval_heap_free(void)     { return (uint32_t)xPortGetFreeHeapSize(); }
+uint32_t hwval_heap_min_free(void) { return (uint32_t)xPortGetMinimumEverFreeHeapSize(); }
+
+const char *hwval_current_task_name(void)
+{
+    return (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
+        ? pcTaskGetName(NULL) : "(nosched)";
+}
+
+/* ---- hooks -------------------------------------------------------------- */
+
+/* FRT-004: print the offending task name, record, reset (stack is suspect;
+ * staying alive is not an option). */
+void vApplicationStackOverflowHook(TaskHandle_t task, char *task_name)
+{
+    (void)task;
+    char msg[80];
+
+    s_panic.magic = HWVAL_PANIC_MAGIC;
+    s_panic.code  = HWVAL_PANIC_OVERFLOW;
+    (void)snprintf(msg, sizeof(msg),
+                   "PANIC stack-overflow task=%s -> reset\r\n",
+                   (task_name != NULL) ? task_name : "?");
+    hwval_uart3_write(msg, 0U);
+    NVIC_SystemReset();
+}
+
+/* FRT-005. FreeRTOS V10 hooks carry no requested size (CL-012); print the
+ * free and minimum-ever-free heap instead. */
+void vApplicationMallocFailedHook(void)
+{
+    char msg[96];
+
+    s_panic.magic = HWVAL_PANIC_MAGIC;
+    s_panic.code  = HWVAL_PANIC_MALLOC;
+    (void)snprintf(msg, sizeof(msg),
+                   "PANIC malloc-failed free=%lu min-ever=%lu -> reset\r\n",
+                   (unsigned long)xPortGetFreeHeapSize(),
+                   (unsigned long)xPortGetMinimumEverFreeHeapSize());
+    hwval_uart3_write(msg, 0U);
+    NVIC_SystemReset();
+}
+
+void hwval_panic_report(void)
+{
+    char msg[80];
+
+    if (s_panic.magic != HWVAL_PANIC_MAGIC) {
+        return;
+    }
+    (void)snprintf(msg, sizeof(msg),
+                   "boot: previous panic code=%lu\r\n",
+                   (unsigned long)s_panic.code);
+    hwval_uart3_write(msg, 0U);
+}
+
+/* ---- tasks (FRT-010) ------------------------------------------------------ */
+
+static void task_cli(void *arg);      /* in tasks.c */
+static void task_runner(void *arg);
+static void task_heartbeat(void *arg);
+static void task_watchdog(void *arg);
+
+void hwval_rtos_start(void)
+{
+    hwval_fault_set_taskname_hook(hwval_current_task_name);
+
+    if (xTaskCreate(task_cli, "cli", 512, NULL, 3, NULL) != pdPASS) {
+        configASSERT(!"create cli");
+    }
+    if (xTaskCreate(task_runner, "runner", 4096, NULL, 2, NULL) != pdPASS) {
+        configASSERT(!"create runner");
+    }
+    if (xTaskCreate(task_heartbeat, "hb", 256, NULL, 1, NULL) != pdPASS) {
+        configASSERT(!"create hb");
+    }
+    if (xTaskCreate(task_watchdog, "wdg", 256, NULL, 1, NULL) != pdPASS) {
+        configASSERT(!"create wdg");
+    }
+    hwval_dwt_stats_init();
+    vTaskStartScheduler();
+
+    /* No heap left? This must never return: */
+    hwval_fault_assert(__FILE__, __LINE__);
+}
+
+/* Runner: schedules the test framework (section 7); the runner body lives
+ * in test_core.c via hwval_test_all() (section 5: RTOS self-tests). */
+static void task_runner(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        hwval_test_all();
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
+
+/* Heartbeat (FRT-012): LD1 1 Hz idle, 5 Hz while a test runs, LD3 after a
+ * failure — the states arrive with the test framework; use them now. */
+static void task_heartbeat(void *arg)
+{
+    (void)arg;
+    GPIO_InitTypeDef led = {
+        .Pin = HWVAL_LED1_PIN | HWVAL_LED3_PIN, .Mode = GPIO_MODE_OUTPUT_PP,
+        .Pull = GPIO_NOPULL, .Speed = GPIO_SPEED_FREQ_LOW
+    };
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    HAL_GPIO_Init(HWVAL_LED1_PORT, &led);
+
+    for (;;) {
+        const uint32_t period = hwval_test_running() ? 100U : 500U;
+        HAL_GPIO_TogglePin(HWVAL_LED1_PORT, HWVAL_LED1_PIN);
+        HAL_GPIO_WritePin(HWVAL_LED3_PORT, HWVAL_LED3_PIN,
+                          hwval_test_failed() ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        vTaskDelay(period);
+    }
+}
+
+/* Watchdog (FRT-013 + GEN-009): dedicated lowest-priority task refreshes
+ * IWDG while the Runner shows progress. If the Runner hangs longer than
+ * the current test's timeout + 5 s, stop kicking: IWDG resets the MCU and
+ * the boot path reports it. */
+static void task_watchdog(void *arg)
+{
+    (void)arg;
+    const TickType_t period = pdMS_TO_TICKS(500);
+
+    for (;;) {
+        if (!hwval_test_runner_progress_expired()) {
+            hwval_iwdg_kick();
+        }
+        vTaskDelay(period);
+    }
+}
+
+/* CLI task shell (FRT-010): real line handling lands in section 6 (CLI).
+ * For now it consumes RX bytes from the ring buffer so the ISR path is
+ * exercised and stays responsive while tests run (FRT-011). */
+static void task_cli(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        int c = hwval_uart3_getc();
+        (void)c; /* line editor + parser arrive in section 6 */
+        if (c < 0) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+}

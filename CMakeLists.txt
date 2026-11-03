@@ -77,7 +77,11 @@ add_compile_definitions(
     HWVAL_GIT_COMMIT="${HWVAL_GIT_COMMIT}"
     HWVAL_BUILD_DATE="${HWVAL_BUILD_DATE} ${HWVAL_COMMIT_DATE}")
 
-include_directories(src board
+# FreeRTOS heap size, configurable at build time (FRT-006).
+set(HWVAL_HEAP_KB "32" CACHE STRING "FreeRTOS heap_4 size in KB (FRT-006)")
+math(EXPR HWVAL_HEAP_BYTES "${HWVAL_HEAP_KB} * 1024")
+
+include_directories(src board tests
     "${CUBE_ROOT}/Drivers/CMSIS/Include"
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Include"
     "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Inc")
@@ -107,13 +111,33 @@ set(PROJECT_SOURCES
     src/reset_cause.c
     src/mpu_setup.c
     src/hal_timebase.c
-    src/syscalls.c)
+    src/syscalls.c
+    src/rtos.c
+    src/test_core.c
+    tests/test_rtos.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/gcc/startup_stm32f767xx.s")
 
-add_executable(hwval.elf ${PROJECT_SOURCES} ${HAL_SOURCES} ${DEVICE_SOURCES})
+# FreeRTOS V10.2.x kernel + native GCC CM7 port, no CMSIS wrappers (FRT-001)
+set(FREERTOS_ROOT "${CUBE_ROOT}/Middlewares/Third_Party/FreeRTOS/Source")
+include_directories(
+    "${FREERTOS_ROOT}/include"
+    "${FREERTOS_ROOT}/portable/GCC/ARM_CM7/r0p1")
+set(FREERTOS_SOURCES
+    "${FREERTOS_ROOT}/list.c"
+    "${FREERTOS_ROOT}/queue.c"
+    "${FREERTOS_ROOT}/tasks.c"
+    "${FREERTOS_ROOT}/timers.c"
+    "${FREERTOS_ROOT}/event_groups.c"
+    "${FREERTOS_ROOT}/stream_buffer.c"
+    "${FREERTOS_ROOT}/portable/GCC/ARM_CM7/r0p1/port.c"
+    "${FREERTOS_ROOT}/portable/MemMang/heap_4.c")
+
+add_executable(hwval.elf ${PROJECT_SOURCES} ${HAL_SOURCES} ${FREERTOS_SOURCES} ${DEVICE_SOURCES})
+target_compile_definitions(hwval.elf PRIVATE
+    HWVAL_RTOS_HEAP_SIZE=${HWVAL_HEAP_BYTES})
 
 # GEN-006: link code and constants into flash sectors 0-10 only; the linker
 # script (ld/STM32F767ZITx_FLASH.ld) fails the build on any overlap with

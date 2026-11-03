@@ -22,6 +22,8 @@
 #include "iwdg.h"
 #include "reset_cause.h"
 #include "mpu_setup.h"
+#include "rtos.h"
+#include "test_core.h"
 
 static void report_previous_fault(void)
 {
@@ -47,23 +49,15 @@ int main(void)
     hwval_version_banner();     /* GEN-003                                   */
     hwval_reset_cause_report(); /* GEN-010                                   */
     report_previous_fault();    /* GEN-008 evidence after fault reset        */
+    hwval_rtos_report_panic();  /* FRT-004/005 hook evidence after reset     */
     hwval_iwdg_start(HWVAL_IWDG_TIMEOUT_MS); /* GEN-009                      */
 
-    hwval_uart3_puts("HWVAL ready (section 4: boot path; CLI arrives in"
-                     " section 6)\r\n");
+    hwval_uart3_puts("HWVAL: boot ok, starting RTOS tasks (section 5)\r\n");
 
-    /* LD1 blink while the scheduler does not exist yet (FRT-012 takes over
-     * this LED in section 5). */
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-    GPIO_InitTypeDef led = {
-        .Pin = HWVAL_LED1_PIN, .Mode = GPIO_MODE_OUTPUT_PP,
-        .Pull = GPIO_NOPULL, .Speed = GPIO_SPEED_FREQ_LOW
-    };
-    HAL_GPIO_Init(HWVAL_LED1_PORT, &led);
+    hwval_test_register_rtos(); /* RTOS self-tests (section 5.3)             */
+    hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
-    for (;;) {
-        HAL_GPIO_TogglePin(HWVAL_LED1_PORT, HWVAL_LED1_PIN);
-        HAL_Delay(250U);
-        hwval_iwdg_kick();
-    }
+    /* Unreachable: the scheduler never returns. */
+    hwval_fault_assert(__FILE__, __LINE__);
+    return 0;
 }
