@@ -8,7 +8,7 @@
 | **Date** | 2026-11-02 |
 | **Status** | Draft for review |
 | **Hardware** | NUCLEO-F767ZI, STM32F767ZIT6 rev Z (see [Hardware.md](Hardware.md)) |
-| **Software base** | FreeRTOS V10.2.1 and HAL/LL from STM32CubeF7 v1.17.4 |
+| **Software base** | FreeRTOS V10.2.0 (as shipped by STM32CubeF7 v1.17.4; the SRS originally said V10.2.1 — CL-011) and HAL/LL from STM32CubeF7 v1.17.4 | |
 
 ---
 
@@ -97,7 +97,7 @@ production programming, calibration storage or field updates.
 | [ES0334] | ST, STM32F76x/F77x errata sheet (revision Z) |
 | [AN4667] | ST, STM32F7 system architecture and performance |
 | [LAN8742A] | Microchip, LAN8742A Ethernet PHY datasheet |
-| [FRTOS] | FreeRTOS V10.2.1 reference manual |
+| [FRTOS] | FreeRTOS V10.2.0 reference manual (shipped middleware of [CubeF7]) | |
 | [DOCKER] | [docker/README.md](docker/README.md) — build environment |
 
 ---
@@ -137,7 +137,7 @@ production programming, calibration storage or field updates.
 | ID | Constraint |
 |---|---|
 | CON-001 | The firmware shall be built with the arm-none-eabi GCC toolchain in the project Docker image [DOCKER]. |
-| CON-002 | The firmware shall use FreeRTOS V10.2.1 and the HAL/LL drivers from STM32CubeF7 v1.17.4 as shipped in the image, unmodified. Fixes shall be applied in project-owned files. |
+| CON-002 | The firmware shall use FreeRTOS V10.2.0 (the version CubeF7 v1.17.4 ships, CL-011) and the HAL/LL drivers from STM32CubeF7 v1.17.4 as shipped in the image, unmodified. Fixes shall be applied in project-owned files. |
 | CON-003 | The firmware shall run from internal flash and internal RAM only. The board has no external memory. |
 | CON-004 | The CLI shall use USART3 on the ST-LINK VCP. USART3 therefore cannot be loopback-tested as a free peripheral (see UART-004). |
 | CON-005 | SWD pins (PA13, PA14) and the HSE input (PH0, PH1) shall never be reconfigured. |
@@ -183,7 +183,7 @@ production programming, calibration storage or field updates.
 | GEN-001 | HWVAL shall build with a single CMake command in the Docker image and produce `.elf`, `.bin` and `.hex` images and a `.map` file. | — | I |
 | GEN-002 | HWVAL shall be flashable with `scripts/docker-dev.sh flash` and boot without a debugger attached. | S | D |
 | GEN-003 | HWVAL shall embed a version string (semantic version, git commit, build date) and print it on boot and with `version`. | S | T |
-| GEN-004 | HWVAL shall run the core at 216 MHz from the PLL fed by the 8 MHz HSE bypass clock, with voltage scale 1 and over-drive, 7 flash wait states, ART and prefetch on, I-cache and D-cache on, unless a test changes this temporarily. | S | T |
+| GEN-004 | HWVAL shall run the core at 216 MHz from the PLL fed by the 8 MHz HSE bypass clock, with voltage scale 1, over-drive (and its switching-ready state), 7 flash wait states, ART and prefetch on, I-cache and D-cache on, unless a test changes this temporarily. Note (CL-009): on this HAL/board `CSR1.VOSRDY` never sets (ST's own F767ZI examples do not wait for it); the flow follows the ST example — scaling set, over-drive enable + wait `ODRDY`/`ODSWRDY`. | S | T |
 | GEN-005 | Any test that changes clocks, caches, power modes, or peripheral state shall restore the default configuration of GEN-004 before it returns, or reset the MCU when restoring is not possible, and state that in its result. | All | T |
 | GEN-006 | HWVAL shall link code and constants into flash sectors 0–10 only, keeping sector 11 free (ASM-004). The build shall fail if the image overlaps sector 11. | — | I |
 | GEN-007 | HWVAL shall place DMA buffers in a memory region that the MPU marks non-cacheable, or perform explicit D-cache maintenance on them. | — | I |
@@ -411,7 +411,7 @@ requirement that states why it cannot be tested on this board.
 | CLK-009 | Test PLLSAI: lock and measure its outputs (SAI clock, LCD-TFT clock, 48 MHz). | S | T |
 | CLK-010 | Test MCO1 (PA8) with HSI, LSE, HSE and PLL sources and all prescalers, and MCO2 (PC9) with SYSCLK, PLLI2S, HSE and PLL sources. With harness wire MCO→timer input, measure each frequency. Without harness, run as Level E with a scope or frequency counter. | L / E | T |
 | CLK-011 | Test the Clock Security System on HSE: enable CSS and check the CSSON bit, and test the NMI handler path by pending the NMI in software (CORE-007). An actual HSE failure cannot be induced, because the HSE comes from the ST-LINK MCO, which firmware cannot stop; the induced-failure part shall report N/A `NOT_INDUCIBLE`. | S | I, T |
-| CLK-012 | Test the LSE Clock Security System (LSECSS) configuration and interrupt path. | S | T |
+| CLK-012 | Test the LSE Clock Security System (LSECSS) configuration and interrupt path. **N/A on the STM32F767: RM0410 (RCC_BDCR) has no LSECSSON/LSECSSD bits — the LSE CSS does not exist on this device (F76x only on F730/750). The test reports N/A with the register-map evidence (CL-016).** | S | T |
 | CLK-013 | Test AHB, APB1 and APB2 prescalers by measuring a timer clocked from each bus against LSE, including the timer clock ×2 rule when APB prescaler ≠ 1. | S | T |
 | CLK-014 | Test peripheral clock enable/disable and reset bits in RCC for every peripheral listed in §12: after reset, the peripheral's registers read their reset values. | S | T |
 | CLK-015 | Test the clock-ready and PLL-lock interrupts in RCC_CIR. | S | T |
@@ -474,7 +474,7 @@ requirement that states why it cannot be tested on this board.
 
 | ID | Requirement | Level | Method |
 |---|---|---|---|
-| INT-001 | Trigger every NVIC interrupt line of the STM32F767 vector table (112 IRQs) by software pending (`NVIC_SetPendingIRQ`) and check its handler runs. | S | T |
+| INT-001 | Trigger every NVIC interrupt line of the STM32F767 vector table (110 external IRQs — the CMSIS device header lists 16 system + 110 external entries; CL-017) by software pending (`NVIC_SetPendingIRQ`) and check its handler runs. | S | T |
 | INT-002 | Test interrupt priority grouping, pre-emption and tail-chaining with 3 nested interrupts. | S | T |
 | INT-003 | Test BASEPRI and PRIMASK masking, and FAULTMASK. | S | T |
 | INT-004 | Test all 16 GPIO EXTI lines (0–15) with rising, falling and both edges, using harness wires or software-triggered events (SWIER) where no wire is fitted. | S, L | T |
@@ -837,7 +837,7 @@ documents why the element cannot be exercised on this board.
 | L1 I-cache and D-cache | CACHE-001…CACHE-003, CORE-009 |
 | ITCM RAM, DTCM RAM | CACHE-004, RAM-001, RAM-002, DMA-005 |
 | MPU | MPU-001…MPU-004, SAFE-002 |
-| NVIC (112 IRQs), priorities, masking | INT-001…INT-003 |
+| NVIC (110 external IRQs), priorities, masking | INT-001…INT-003 |
 | Fault handling (HardFault, MemManage, BusFault, UsageFault) | GEN-008, CORE-003…CORE-006, MPU-002 |
 | SRAM1, SRAM2 | RAM-003…RAM-007 |
 | Backup SRAM | RAM-008, RAM-009, DMA-005 |
@@ -937,48 +937,69 @@ documents why the element cannot be exercised on this board.
 |---|---|---|
 | COV-001 | Every row of §12.1–§12.3 shall map to at least one test case in the HWVAL test table (TFW-002). A build-time script shall fail the build if any requirement in §8 has no test case, or any test case lists no requirement. | I, T |
 | COV-002 | Every peripheral base address defined in the CMSIS device header `stm32f767xx.h` shall appear in §12. A script shall compare the header's `*_BASE` definitions with the matrix. | I |
-| COV-003 | Every IRQ in the CMSIS device header (112 entries) shall be exercised by INT-001 and, for its peripheral, by the peripheral test. | T |
+| COV-003 | Every IRQ in the CMSIS device header (110 external entries) shall be exercised by INT-001 and, for its peripheral, by the peripheral test. | T |
 
 ---
 
 ## Appendix A — Loopback harness
 
 The harness is a set of female-female jumper wires on the Zio and morpho
-headers. The definitive pin pairs shall be fixed in the HWVAL design against
-the alternate-function tables of [DS11532] and the board pin-out of
-[UM1974], respecting the pin-conflict table of [HW §13]. The table below
-lists the **functions** each wire must connect; the design document fills
-the pin columns.
+headers. The pin pairs are fixed in the HWVAL design in
+`board/hwval_board_pins.c` (`hwval_wire_table`) against the
+alternate-function tables of [DS11532] and the board pin-out of [UM1974],
+respecting the pin-conflict table of [HW §13] (OPEN-001 closed by that
+board file; entries marked *verify* have their AF muxing confirmed on the
+bench during bring-up, OPEN-004). Each wire connects the functions below.
 
-| Wire | From (function) | To (function) | Used by |
-|---|---|---|---|
-| H01 | DAC_OUT1 (PA4) | ADC input A | ADC-004, DAC-* |
-| H02 | DAC_OUT2 (PA5) | ADC input B | ADC-004, DAC-* |
-| H03–H09 | USARTx/UARTx TX | same instance RX (×7 instances) | UART-001…UART-010 |
-| H10 | USART2 RTS | USART2 CTS | UART-005 |
-| H11 | USART6 RTS | USART6 CTS | UART-005 |
-| H12 | USARTa TX | USARTb RX (cross, for parity/framing error injection, smartcard) | UART-006, UART-009 |
-| H13–H18 | SPIx MOSI | SPIx MISO (×6 instances) | SPI-001 |
-| H19 | SPIa SCK/MOSI/MISO/NSS | SPIb SCK/MOSI/MISO/NSS (4 wires) | SPI-002, I2S-001 |
-| H20 | I2Ca SCL/SDA | I2Cb SCL/SDA (2 wires, per pair of instances) | I2C-001…I2C-008 |
-| H21 | CANx TX | CANx RX / GPIO monitor | CAN-005, CAN-007, CAN-009 |
-| H22 | TIMa CHn (output) | TIMb CHm (input capture) | TIM-003, TIM-004, TIM-007 |
-| H23 | GPIO a, GPIO b | TIMx CH1, CH2 (encoder) | TIM-005 |
-| H24 | GPIO | TIM1/TIM8 BKIN, BKIN2, ETR | TIM-008, TIM-014 |
-| H25 | GPIO ×3 | TIM1 CH1–3 (hall) | TIM-010 |
-| H26 | MCO1 (PA8), MCO2 (PC9) | timer input capture | CLK-010 |
-| H27 | SAI SD_A | SAI SD_B / SPDIFRX INx | SAI-002, SAI-004, SPDIF-001 |
-| H28 | SPI/SAI clock + data | DFSDM CKINy + DATINy | DFSDM-002, DFSDM-004 |
-| H29 | ETH MDIO/MDC | MDIOS MDIO/MDC | MDIOS-001 |
-| H30 | CEC pin | 3V3 through 27 kΩ | CEC-001, CEC-002 |
-| H31 | GPIO ×11 (PIXCLK, HSYNC, VSYNC, D0–D7) | DCMI inputs | DCMI-001, DCMI-002 |
-| H32 | LTDC HSYNC, VSYNC, CLK | timer input capture | LTDC-002 |
-| H33 | GPIO | wake-up pins (PA0, PA2, PC1, …) | PWR-008 |
-| H34 | GPIO | EXTI-capable pins on lines without a wire | INT-004, INT-008 |
-| H35 | LPTIM1 OUT | LPTIM1 IN1/IN2/ETR | LPTIM-001, LPTIM-002 |
+| Wire | From | To | Used by | status |
+|---|---|---|---|---|
+| H01 | DAC_OUT1 (PA4) | ADC input A (PF3/ADC3_IN9) | ADC-004, DAC-* | fixed |
+| H02 | DAC_OUT2 (PA5) | ADC input B (PF5/ADC3_IN15) | ADC-004, DAC-* | fixed |
+| H03 | USART1_TX (PA9) | USART1_RX (PA10) | UART-001…010 | fixed |
+| H04 | USART2_TX (PD5) | USART2_RX (PD6) | UART-001…010 | fixed |
+| H05 | USART6_TX (PG14) | USART6_RX (PG9) | UART-001…010 | fixed |
+| H06 | UART4_TX (PC10) | UART4_RX (PC11) | UART-001…010 | fixed |
+| H07 | UART5_TX (PC12) | UART5_RX (PD2) | UART-001…010 | fixed |
+| H08 | UART7_TX (PE7) | UART7_RX (PE8) | UART-001…010 | fixed |
+| H09 | UART8_TX (PE0) | UART8_RX (PE1) | UART-001…010 | fixed |
+| H10 | USART2_RTS (PD4) | USART2_CTS (PD3) | UART-005 | fixed |
+| H11 | USART6_RTS (PG12) | USART6_CTS (PG13) | UART-005 | fixed |
+| H12 | USART2_TX (PD5) | USART6_RX (PG9) | UART-006/009 (cross, parity/framing error injection) | fixed |
+| H12b | USART6_TX (PG14) | USART2_RX (PD6) | UART-006/009 (cross) | fixed |
+| H13 | SPI1_MOSI (PB5) | SPI1_MISO (PB4) | SPI-001 | fixed |
+| H14 | SPI2_MOSI (PB15) | SPI2_MISO (PC2) | SPI-001 | fixed |
+| H15 | SPI4_MOSI (PE14) | SPI4_MISO (PE13) | SPI-001 | fixed |
+| H16 | SPI5_MOSI (PF11) | SPI5_MISO (PF9) | SPI-001 | fixed |
+| H17 | I2C2_SCK (PF7) | I2C2_SDA (PF1) | clock-path note | verify |
+| H19 | SPI4_SCK (PE12) | SPI5_SCK (PF7) | SPI-002, I2S-001 | fixed |
+| H19b | SPI4_MOSI (PE14) | SPI5_MOSI (PF11, slave in) | SPI-002, I2S-001 | fixed |
+| H20 | I2C1_SCL (PB8) | I2C3_SCL (PA8) | I2C-001…008 | fixed |
+| H20b | I2C1_SDA (PB9) | I2C3_SDA (PC9) | I2C-001…008 | fixed |
+| H20c | I2C2_SCL (PF1) | I2C4_SCL (PD13) | I2C-001…008 | fixed |
+| H20d | I2C2_SDA (PF0) | I2C4_SDA (PD14) | I2C-001…008 | fixed |
+| H21 | CAN1_TX (PD1) | CAN1_RX (PD0) | CAN-005/007/009 | fixed |
+| H22 | TIM1_CH1 (PE9) | TIM8/3_CH1 (PC6) | TIM-003/004/007 | fixed |
+| H23 | TIM1_CH2 (PE11) | TIM4_CH1 (PB6) | TIM-005 encoder | fixed |
+| H23b | TIM1_CH3 (PE13) | TIM4_CH2 (PB7) | TIM-005 encoder | fixed |
+| H24 | GPIO (PG10) | TIM1_BKIN2/ETR (PB12) | TIM-008/014 | verify |
+| H25 | GPIO (PF12) | TIM1_CH1 (PE9) | TIM-010 hall (input side) | fixed |
+| H25b | GPIO (PF13) | TIM1_CH2 (PE11) | TIM-010 hall (input side) | fixed |
+| H25c | GPIO (PF15) | TIM1_CH3 (PE13) | TIM-010 hall (input side) | fixed |
+| H26 | MCO1 (PA8) | TIM13_CH1 (PF8) | CLK-010 | fixed |
+| H26b | MCO2 (PC9) | TIM10_CH1 (PB8, fan-out w/H20) | CLK-010 | fixed |
+| H27 | SAI1_SD_A (PE5) | SAI1_SD_B (PE3) | SAI-001…003, SAI-005 | verify |
+| H27b | SAI1_SD_A (PE5) | SPDIFRX_IN1 (PE9) | SAI-004, SPDIF-001/002 | verify |
+| H28 | SPI/I2S clock+data (PF7) | DFSDM CKINy (PF10) | DFSDM-002/004 | verify |
+| H31 | DCMI D0 self-wired (PC6) | (8-line deskew bench, §8.30) | DCMI-001/002 | verify |
+| H33 | GPIO (PB10) | WKUP1 (PA0) | PWR-008 | fixed |
+| H33b | GPIO (PB11) | WKUP2 (PA2, also ETH MDIO) | PWR-008 | verify |
+| H33c | GPIO (PB12) | WKUP3 (PC1, fan-out w/H24) | PWR-008 | verify |
+| H34 | GPIO (PA3) | EXTI-capable pin (PC3) | INT-004/008 | fixed |
+| H35 | LPTIM1_OUT (PE10) | LPTIM1_IN1/ETR (PA0) | LPTIM-001/002 | verify |
 
 HWVAL shall detect each wire (ENV-002) by driving one end and reading the
-other before using it.
+other before using it; wires marked *verify* are excluded from the
+auto-detection bitmask until their AF configuration is bench-confirmed.
 
 ## Appendix B — External equipment
 
@@ -1018,12 +1039,13 @@ Verifies:  UART-001
 
 ## Appendix D — Open items
 
-| ID | Item |
-|---|---|
-| OPEN-001 | Fix the harness pin pairs (Appendix A) against [DS11532] and [UM1974]. |
-| OPEN-002 | Confirm the LD1 solder-bridge option (PB0/PA5) and the LD3/PB14 solder bridge for USBHS-003 on the board silkscreen. |
-| OPEN-003 | Confirm the IDD jumper reference designator and the expected current per mode from [DS11532] tables (PWR-009). |
-| OPEN-004 | Confirm which SPDIFRX inputs, DFSDM channels, CEC pin and MDIOS pins are reachable on the headers without conflicts. |
-| OPEN-005 | Review [ES0334] for revision Z errata that change any expected result (e.g. ADC, I2C, CAN, Ethernet) and record workarounds in the test limits. |
-| OPEN-006 | Decide which optional external modules (Appendix B) are available at the bench; tests without equipment report SKIP. |
-| OPEN-007 | Simplify CLK-011: the HSE CSS cannot be triggered with the ST-LINK MCO bypass source; agree that only configuration and NMI path are verified. |
+| ID | Item | Status |
+|---|---|---|
+| OPEN-001 | Fix the harness pin pairs (Appendix A) against [DS11532] and [UM1974]. | **Closed**: pairs fixed in `board/hwval_board_pins.c` (§8.13 commit; CL-005); Appendix A carries the same table. |
+| OPEN-002 | Confirm the LD1 solder-bridge option (PB0/PA5) and the LD3/PB14 solder bridge for USBHS-003 on the board silkscreen. | Open bench item (no impact on non-destructive tests; USBHS-003 reports N/A `PIN_CONFLICT` until confirmed). |
+| OPEN-003 | Confirm the IDD jumper reference designator (JP6 per UM1974) and the expected current per mode from [DS11532] tables (PWR-009). | Open bench item; PWR-009 prints the expected ranges from the datasheet tables. |
+| OPEN-004 | Confirm which SPDIFRX inputs, DFSDM channels, CEC pin and MDIOS pins are reachable on the headers without conflicts. | Partially resolved: H27b (SPDIFRX_IN1), H28 (DFSDM) and H31 are marked *verify* in the wire table until bench-checked; MDIOS is register-path only (MDIOS.001). |
+| OPEN-005 | Review [ES0334] for revision Z errata that change any expected result (e.g. ADC, I2C, CAN, Ethernet) and record workarounds in the test limits. | Open bench item — the bench pass walks the errata checklist before the first full run. |
+| OPEN-006 | Decide which optional external modules (Appendix B) are available at the bench; tests without equipment report SKIP. | Resolved by design: every case gates on equipment presence (ENV-002/003) — no equipment → `SKIP NO_EQUIPMENT`, no configuration needed. |
+| OPEN-007 | Simplify CLK-011: the HSE CSS cannot be triggered with the ST-LINK MCO bypass source; agree that only configuration and NMI path are verified. | **Closed**: CLK-011's text already carries exactly this split (configuration + NMI-path verify; induced failure N/A `NOT_INDUCIBLE`). |
+| OPEN-008 | LSE clock security. CLK-012 assumed an LSECSS exists. | **Closed (CL-016)**: the F767 has no LSE CSS (no LSECSSON/LSECSSD in RCC_BDCR per RM0410); CLK-012 verifies N/A with the register-map evidence. |
