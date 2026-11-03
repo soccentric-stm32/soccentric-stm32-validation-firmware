@@ -27,4 +27,10 @@ typedef struct {
 
 void hwval_clock_get_tree(hwval_clock_tree_t *out);
 
+/* Switch to a specific HCLK with a given flash latency (FLS-003, CLK-013;
+ * SAFE-007: always goes through HSI first). 0 on success. */
+int hwval_clock_set(uint32_t hclk_hz, uint32_t ws);
+/* Restore the GEN-004 default tree. */
+int hwval_clock_restore_default(void);
+
 #endif /* HWVAL_CLOCK_H */

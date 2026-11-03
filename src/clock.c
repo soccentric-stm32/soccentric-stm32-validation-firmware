@@ -74,6 +74,55 @@ void hwval_clock_init(void)
     }
 }
 
+/* Shared switch helper (SAFE-007): to HSI, then PLL at the target with
+ * the requested latency, over-drive again for >=180 MHz. */
+int hwval_clock_set(uint32_t hclk_hz, uint32_t ws)
+{
+    RCC_ClkInitTypeDef clk = { 0 };
+    RCC_OscInitTypeDef osc = { 0 };
+
+    clk.ClockType = RCC_CLOCKTYPE_SYSCLK;
+    clk.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+    if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_0) != HAL_OK) {
+        return -1;
+    }
+    osc.OscillatorType      = RCC_OSCILLATORTYPE_HSE;
+    osc.HSEState            = RCC_HSE_BYPASS;
+    osc.PLL.PLLState        = RCC_PLL_ON;
+    osc.PLL.PLLSource       = RCC_PLLSOURCE_HSE;
+    osc.PLL.PLLM            = 8U;
+    osc.PLL.PLLN            = hclk_hz / 1000000U;
+    osc.PLL.PLLP            = RCC_PLLP_DIV2;
+    osc.PLL.PLLQ            = 9U;
+    if (HAL_RCC_OscConfig(&osc) != HAL_OK) {
+        return -2;
+    }
+    if (hclk_hz >= 180000000U) {
+        if (HAL_PWREx_EnableOverDrive() != HAL_OK) {
+            return -3;
+        }
+    }
+    clk.ClockType      = RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK |
+                         RCC_CLOCKTYPE_PCLK1  | RCC_CLOCKTYPE_PCLK2;
+    clk.SYSCLKSource   = RCC_SYSCLKSOURCE_PLLCLK;
+    clk.AHBCLKDivider  = RCC_SYSCLK_DIV1;
+    clk.APB1CLKDivider = RCC_HCLK_DIV4;
+    clk.APB2CLKDivider = RCC_HCLK_DIV2;
+    if (HAL_RCC_ClockConfig(&clk, ws) != HAL_OK) {
+        return -4;
+    }
+    __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
+    __HAL_FLASH_ART_ENABLE();
+    SCB_EnableICache();
+    SCB_EnableDCache();
+    return 0;
+}
+
+int hwval_clock_restore_default(void)
+{
+    return hwval_clock_set(216000000U, 7U);
+}
+
 void hwval_clock_get_tree(hwval_clock_tree_t *t)
 {
     uint32_t pclk1 = HAL_RCC_GetPCLK1Freq();

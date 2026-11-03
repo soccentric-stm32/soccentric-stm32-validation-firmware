@@ -66,6 +66,7 @@ void hwval_test_register_cm7(void);
 void hwval_test_register_cache_mpu(void);
 void hwval_test_register_ram(void);
 void hwval_test_register_flash(void);
+void hwval_test_register_clk(void);
 
 size_t hwval_test_count(void);
 const struct tfw_case *hwval_test_at(size_t index);

@@ -15,6 +15,7 @@
 #include "hwval_limits.h"
 #include "test_core.h"
 #include "flash_ops.h"
+#include "clock.h"
 
 /* wrong-key helper in src/flash_ops.c */
 void hwval_flash_wrong_key_lock(void);
@@ -87,56 +88,15 @@ static tfw_result_t fls_alias_paths(struct tfw_out *o)
     }
     return TFW_PASS;
 }
+#define clock_to(hw, ws_) hwval_clock_set((hw), (ws_))
 
 /* ------------------------------------------------------------- FLS-003 */
+
 static const struct { uint32_t hz; uint32_t ws; } k_ws_table[] = {
     { 120000000U, 3U }, /* [RM0410] VOS1 latency table (DS11532) */
     { 180000000U, 5U },
     { 216000000U, 7U },
 };
-
-static int clock_to(uint32_t hz, uint32_t ws)
-{
-    RCC_ClkInitTypeDef clk = { 0 };
-    RCC_OscInitTypeDef osc = { 0 };
-    uint32_t fl = HAL_RCC_GetSysClockFreq();
-
-    (void)fl;
-    /* switch to HSI first (SAFE-007) */
-    clk.ClockType = RCC_CLOCKTYPE_SYSCLK;
-    clk.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
-    if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_0) != HAL_OK) {
-        return -1;
-    }
-    osc.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    osc.HSEState = RCC_HSE_BYPASS;
-    osc.PLL.PLLState = RCC_PLL_ON;
-    osc.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    osc.PLL.PLLM = 8U;
-    osc.PLL.PLLN = (hz / 1000000U); /* VCO in 1 MHz -> N = target MHz */
-    osc.PLL.PLLP = RCC_PLLP_DIV2;
-    osc.PLL.PLLQ = 9U;
-    if (HAL_RCC_OscConfig(&osc) != HAL_OK) {
-        return -2;
-    }
-    if (HAL_PWREx_EnableOverDrive() != HAL_OK) {
-        return -3;
-    }
-    clk.ClockType = RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK |
-                    RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    clk.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    clk.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    clk.APB1CLKDivider = RCC_HCLK_DIV4;
-    clk.APB2CLKDivider = RCC_HCLK_DIV2;
-    if (HAL_RCC_ClockConfig(&clk, ws) != HAL_OK) {
-        return -4;
-    }
-    __HAL_FLASH_PREFETCH_BUFFER_ENABLE();
-    __HAL_FLASH_ART_ENABLE();
-    SCB_EnableICache();
-    SCB_EnableDCache();
-    return 0;
-}
 
 static int flash_reads_ok(void)
 {
