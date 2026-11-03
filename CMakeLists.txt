@@ -119,7 +119,8 @@ set(PROJECT_SOURCES
     src/harness.c
     tests/test_rtos.c
     tests/test_dev.c
-    tests/test_core_m7.c)
+    tests/test_core_m7.c
+    tests/test_cache_mpu.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
