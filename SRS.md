@@ -3,9 +3,9 @@
 | | |
 |---|---|
 | **Document** | SRS-HWVAL-F767 |
-| **Version** | 0.1 (draft) |
+| **Version** | 0.2 (draft) |
 | **Author** | Sandesh Ghimire <sandesh@soccentric.com> |
-| **Date** | 2026-11-02 |
+| **Date** | 2026-11-03 (v0.2: HWLINK link mode for the GUI, §6.4) |
 | **Status** | Draft for review |
 | **Hardware** | NUCLEO-F767ZI, STM32F767ZIT6 rev Z (see [Hardware.md](Hardware.md)) |
 | **Software base** | FreeRTOS V10.2.0 (as shipped by STM32CubeF7 v1.17.4; the SRS originally said V10.2.1 — CL-011) and HAL/LL from STM32CubeF7 v1.17.4 | |
@@ -41,7 +41,8 @@ This document specifies the requirements for **HWVAL**, a FreeRTOS-based
 firmware application that verifies and validates every hardware feature of the
 NUCLEO-F767ZI board and of the STM32F767ZI microcontroller on it. The
 application is operated from a terminal over the ST-LINK virtual COM port
-(USART3 → USB → `/dev/ttyACM0`).
+(USART3 → USB → `/dev/ttyACM0`), or from the HWVAL Studio GUI [GUI] over the
+same port using the binary HWLINK protocol [LINK] (link mode, §6.4).
 
 ### 1.2 Scope
 
@@ -52,10 +53,12 @@ HWVAL shall:
 - explicitly account for every block that **cannot** be exercised on this
   board, with the reason, so that coverage is 100 % of the hardware inventory;
 - present all tests through an interactive, scriptable terminal interface;
+- present the same tests to the HWVAL Studio GUI through HWLINK link mode;
 - report results in a form that both a person and a host script can read.
 
 HWVAL is a validation tool, not a product application. It does not cover
-production programming, calibration storage or field updates.
+production programming, calibration storage or field updates; field updates
+are done by the A/B bootloader [BOOT], which HWVAL does not run under.
 
 ### 1.3 Definitions
 
@@ -71,6 +74,9 @@ production programming, calibration storage or field updates.
 | **DUT** | Device under test: the NUCLEO-F767ZI board |
 | **N/A** | Hardware block not present or not usable on this board |
 | **Destructive** | A test that changes non-volatile state (flash, backup domain) |
+| **HWLINK** | Binary framing (COBS + CRC32) and FlatBuffers protocol shared by HWVAL, the bootloader, the demo app and the GUI [LINK] |
+| **Link mode** | CLI state in which USART3 carries HWLINK frames instead of text (§6.4) |
+| **GUI** | HWVAL Studio, the cross-platform host application [GUI] |
 
 ### 1.4 Requirement conventions
 
@@ -99,6 +105,9 @@ production programming, calibration storage or field updates.
 | [LAN8742A] | Microchip, LAN8742A Ethernet PHY datasheet |
 | [FRTOS] | FreeRTOS V10.2.0 reference manual (shipped middleware of [CubeF7]) | |
 | [DOCKER] | [docker/README.md](docker/README.md) — build environment |
+| [GUI] | [soccentric-stm32-validation-gui/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-validation-gui/blob/HEAD/SRS.md) — SRS-GUI-F767, HWVAL Studio host GUI |
+| [LINK] | [soccentric-stm32-validation-gui/SRS.md, Appendix A](https://github.com/soccentric-stm32/soccentric-stm32-validation-gui/blob/HEAD/SRS.md#appendix-a--hwlink-protocol) — HWLINK protocol (normative) |
+| [BOOT] | [soccentric-stm32-bootloader/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-bootloader/blob/HEAD/SRS.md) — SRS-BOOT-F767, A/B bootloader |
 
 ---
 
@@ -131,6 +140,7 @@ production programming, calibration storage or field updates.
 | Hardware engineer | Board validation, fault finding on a specific peripheral or pin |
 | Test technician | Running the full suite and recording the report |
 | CI / host script | Unattended runs of all tests that need no operator |
+| HWVAL Studio GUI | Interactive and operator-mode runs, run history and reports over HWLINK [GUI] |
 
 ### 2.3 Constraints
 
@@ -151,6 +161,7 @@ production programming, calibration storage or field updates.
 | ASM-002 | The board is powered from the ST-LINK USB port unless a power test asks for another source. |
 | ASM-003 | Option bytes are at the measured defaults [HW §5.2]: RDP level 0, single-bank, no write protection. |
 | ASM-004 | Flash sector 11 (`0x081C0000`–`0x081FFFFF`, 256 KB) is free for destructive flash tests (FLS-*). |
+| ASM-005 | HWVAL runs only in the bench configuration (single-bank, flashed over SWD at `0x0800 0000`). The product configuration (dual-bank, bootloader + application slots) is set up and torn down by the GUI over SWD [BOOT §2.5]; HWVAL is never loaded by the bootloader. |
 
 ---
 
@@ -274,13 +285,35 @@ production programming, calibration storage or field updates.
 | CLI-031 | `tasks` | FreeRTOS task list and run-time stats (FRT-025). | T |
 | CLI-032 | `log <level>` | Set log level: `error`, `warn`, `info`, `debug`. | T |
 | CLI-033 | `reset [hard]` | Software reset (NVIC_SystemReset). `hard` uses IWDG. | T |
-| CLI-034 | `mode interactive\|script` | See CLI-012. | T |
+| CLI-034 | `mode interactive\|script\|link` | See CLI-012; `link` see §6.4. | T |
 | CLI-035 | `format text\|json` | Result output format (§7.2). | T |
 | CLI-036 | `set <key> <value>` / `get <key>` | Runtime settings: operator timeout, fault action, test parameters. | T |
 | CLI-037 | `peek <addr> [n]` / `poke <addr> <value>` | Read/write memory or registers for debugging. `poke` shall refuse addresses in flash, OTP and option bytes, and shall require `--force` for any peripheral address. | T |
 | CLI-038 | `gpio <pin> [in\|out\|high\|low\|pullup\|pulldown\|read]` | Manual pin control for fault finding. Refuses the pins of CON-005. | T |
 | CLI-039 | `clock` | Print SYSCLK, HCLK, PCLK1/2, timer clocks, PLL, PLLI2S, PLLSAI, MCO settings. | T |
 | CLI-040 | Unknown command | Print `ERR unknown command` and a hint to `help`, without changing state. | T |
+
+### 6.4 Link mode (HWLINK)
+
+Link mode lets the HWVAL Studio GUI [GUI] drive HWVAL with the binary HWLINK
+protocol [LINK] on the same USART3. The text CLI stays for people at a
+terminal and for `hwtest.py`. These requirements implement the GUI change
+requests CR-01…CR-08 ([GUI] Appendix B).
+
+| ID | Requirement | Level | Method |
+|---|---|---|---|
+| LINK-001 | `mode link` shall switch USART3 from the text CLI to HWLINK framing [LINK A.2] after printing `OK link`. The HWLINK message `EnterTextMode` shall switch back to the text CLI (interactive mode). (CR-01) | S | T |
+| LINK-002 | While in link mode HWVAL shall send no text on USART3; log output shall be sent as HWLINK `Log` events. (CR-01) | S | T |
+| LINK-003 | HWVAL shall implement the common HWLINK messages and the HWVAL message set of [LINK A.3]: `Hello`, `Ping`, `SetBaud`, `Reset`, `GetDeviceInfo`, `ListGroups`, `ListTests`, `GetHarness`, `Run`, `OperatorAnswer`, `Abort`, `GetResults`, `ClearResults`, `GetReport`, `GetSetting`, `SetSetting`, `EnterTextMode`, with the events `RunStarted`, `TestStarted`, `TestResult`, `OperatorPrompt`, `RunFinished`, `Progress`, `Log`. (CR-02) | S | T |
+| LINK-004 | `ListGroups`/`ListTests` shall be generated from the single test table (TFW-002), so that the GUI sidebar and catalogue always match the firmware. | S | T, I |
+| LINK-005 | `Run` options shall map one-to-one to CLI-024…CLI-026 (selection, levels, operator, destructive, repeat, until-fail), and `Abort` to CLI-027 / FRT-011. | S | T |
+| LINK-006 | Every field of a text/JSON result line (TFW-010, TFW-011) shall be present in `TestResult`, plus structured values (TFW-013). (CR-02, CR-03) | S | T |
+| LINK-007 | `HelloReply` shall report role `HWVAL`, firmware name/version/commit/build time, chip UID, DEV_ID, REV_ID, flash mode `SINGLE_BANK` and the HWLINK protocol version. (CR-06) | S | T |
+| LINK-008 | Operator prompts (CLI-014), equipment confirmations (ENV-003, SAFE-009) and destructive confirmations (SAFE-005) shall be sent as `OperatorPrompt` events with kind, text, valid answers and timeout, and answered with `OperatorAnswer`; the timeout behaviour of CLI-014 is unchanged. (CR-05) | O | T |
+| LINK-009 | For "press B1" prompts, HWVAL shall complete the prompt itself when the press is detected and report it, so that the GUI can close its dialog. (CR-07) | O | T |
+| LINK-010 | When link mode was active before a reset caused by a test (TFW-007) or by the watchdog, HWVAL shall boot straight into link mode (flag in a backup register), and make the preserved results (TFW-022) available through `GetResults`; a run that was interrupted shall resume with the remaining tests and end with `RunFinished`. (CR-04) | S | T |
+| LINK-011 | Within link mode, HWVAL shall answer every request within 50 ms (NFR-001), handle a repeated sequence number by resending its last response [LINK A.4], and verify every received FlatBuffer before use [LINK A.2]. | S | T |
+| LINK-012 | The FlatBuffers code shall be generated with flatcc from the shared schema `protocol/hwlink.fbs` at build time; the flatcc runtime shall be used as released, in project-owned build files (CON-002 applies to it like to the SDK). | — | I |
 
 ---
 
@@ -306,6 +339,7 @@ production programming, calibration storage or field updates.
 | TFW-010 | Each test shall print one start line and one result line. In text format: `RESULT <id> <PASS\|FAIL\|SKIP\|N/A> <duration_ms> <reason or detail>`. | T |
 | TFW-011 | In JSON format, each result shall be a single-line JSON object with fields `id`, `group`, `result`, `duration_ms`, `reason`, `measured`, `limits`, `reqs`. | T |
 | TFW-012 | Result lines shall start at the beginning of a line and never be split by other output, so that a host script can match `^RESULT `. | T |
+| TFW-013 | Where a measured value or a limit is numeric, the test case shall provide it as a number with a unit (`measured: {value, unit}`, `limits: {min, max, unit}`) in addition to the text form; the JSON format (TFW-011) and `TestResult` (LINK-006) shall carry both. (CR-03) | T |
 
 ### 7.3 Report
 
@@ -788,6 +822,8 @@ The F767 has TIM1–TIM14 and LPTIM1. Every timer shall be tested.
 | SAFE-008 | Low-power tests shall leave a wake-up source armed, and HWVAL shall always enable `DBG_SLEEP/STOP/STANDBY` so that the debugger can connect if a wake-up fails. | I |
 | SAFE-009 | GPIO-010 (5 V test) and RST-006 (bench supply) shall require a confirmation that names the equipment and the expected wiring. | T |
 | SAFE-010 | SD card and USB drive write tests shall use a dedicated file or LBA range and shall not format the medium without explicit operator confirmation. | T |
+| SAFE-011 | HWVAL shall check `FLASH_OPTCR.nDBANK` at boot. If the flash is in dual-bank mode (product configuration, ASM-005), HWVAL shall print and report a warning, and every destructive flash test shall report N/A `WRONG_FLASH_MODE` instead of erasing. | T |
+| SAFE-012 | In link mode, `Run` with destructive tests allowed shall still confirm each destructive test through `OperatorPrompt` (LINK-008); the `allow destructive` option alone shall not be enough. | T |
 
 ---
 
@@ -805,6 +841,7 @@ The F767 has TIM1–TIM14 and LPTIM1. Every timer shall be tested.
 | NFR-008 | **Maintainability:** each hardware group shall live in its own source file `tests/test_<group>.c` with its pin and limit definitions in the matching header. | I |
 | NFR-009 | **Portability:** board-specific pins and harness wiring shall be in one board file, so that the suite can be adapted to another Nucleo-144 F7 board. | I |
 | NFR-010 | **Documentation:** a user guide shall describe the CLI, every test (generated from the test table), the harness wiring and the external equipment setup. | I |
+| NFR-011 | **Footprint with link mode:** the flatcc runtime and the HWLINK code shall fit within NFR-003 and keep the RAM floors of NFR-004; `scripts/check_footprint.py` shall still pass. (CR-08) | I |
 
 ---
 
@@ -817,6 +854,7 @@ The F767 has TIM1–TIM14 and LPTIM1. Every timer shall be tested.
 | HOST-003 | The host script shall support the host side of tests: USB CDC echo (USB-010), Ethernet ping/TCP/UDP (ETH-007/008), SWO capture via OpenOCD (DBG-004), and debugger-halt freeze checks (WDG-004, DBG-005). | T |
 | HOST-004 | The host script shall exit with code 0 when all selected tests pass, 1 when any fail, 2 on communication errors. | T |
 | HOST-005 | The host script shall run inside the project Docker image as well as on the host. | D |
+| HOST-006 | The HWVAL Studio GUI [GUI] shall be a second host front end using link mode (§6.4). Its JSON/Markdown reports shall keep the `hwtest.py` naming and content (HOST-001), and `hwtest.py` shall keep working through the text CLI. | D |
 
 ---
 
@@ -1049,3 +1087,6 @@ Verifies:  UART-001
 | OPEN-006 | Decide which optional external modules (Appendix B) are available at the bench; tests without equipment report SKIP. | Resolved by design: every case gates on equipment presence (ENV-002/003) — no equipment → `SKIP NO_EQUIPMENT`, no configuration needed. |
 | OPEN-007 | Simplify CLK-011: the HSE CSS cannot be triggered with the ST-LINK MCO bypass source; agree that only configuration and NMI path are verified. | **Closed**: CLK-011's text already carries exactly this split (configuration + NMI-path verify; induced failure N/A `NOT_INDUCIBLE`). |
 | OPEN-008 | LSE clock security. CLK-012 assumed an LSECSS exists. | **Closed (CL-016)**: the F767 has no LSE CSS (no LSECSSON/LSECSSD in RCC_BDCR per RM0410); CLK-012 verifies N/A with the register-map evidence. |
+| OPEN-009 | Close the ST-LINK VCP board→host solder bridge (CL-010). Both the text CLI and link mode need it ([GUI] CR-09). | Open bench item |
+| OPEN-010 | Write the shared schema `protocol/hwlink.fbs` and add flatcc to the Docker image before implementing §6.4. | Open |
+| OPEN-011 | Fix the exact `mode link` → text fallback when the GUI is closed without sending `EnterTextMode` (e.g. a text `\r` line after 5 s of no frames, as sketched in [GUI] CR-01). | Open |

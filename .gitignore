@@ -131,3 +131,6 @@ TAGS
 !backup/
 # host-tool reports (generated)
 reports/
+
+# --- Secrets -------------------------------------------------
+.env
