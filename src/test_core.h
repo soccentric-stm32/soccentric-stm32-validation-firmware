@@ -71,6 +71,7 @@ void hwval_test_register_pwr(void);
 void hwval_test_register_rst_wdg(void);
 void hwval_test_register_rtc(void);
 void hwval_test_register_int(void);
+void hwval_test_register_dma(void);
 
 size_t hwval_test_count(void);
 const struct tfw_case *hwval_test_at(size_t index);

@@ -80,7 +80,7 @@ static const struct { const char *name; uint8_t owned; } k_vec_names[] = {
     { "TIM6_DAC_IRQHandler", 1 },
     { "TIM7_IRQHandler", 0 },
     { "DMA2_Stream0_IRQHandler", 0 },
-    { "DMA2_Stream1_IRQHandler", 0 },
+    { "DMA2_Stream1_IRQHandler", 1 },
     { "DMA2_Stream2_IRQHandler", 0 },
     { "DMA2_Stream3_IRQHandler", 0 },
     { "DMA2_Stream4_IRQHandler", 0 },
@@ -313,8 +313,6 @@ void TIM7_IRQHandler(void) { s_h55++; nest_enter(); nest_exit(); }
 static volatile uint32_t s_h56;
 void DMA2_Stream0_IRQHandler(void) { s_h56++; nest_enter(); nest_exit(); }
 
-static volatile uint32_t s_h57;
-void DMA2_Stream1_IRQHandler(void) { s_h57++; nest_enter(); nest_exit(); }
 
 static volatile uint32_t s_h58;
 void DMA2_Stream2_IRQHandler(void) { s_h58++; nest_enter(); nest_exit(); }
@@ -487,7 +485,7 @@ static volatile uint32_t *hit_of(int i)
         (const void *)&s_h15,
         (const void *)&s_h16,
         (const void *)&s_h17,
-        (const void *)&s_h18,
+        NULL,
         (const void *)&s_h19,
         (const void *)&s_h20,
         (const void *)&s_h21,
@@ -526,7 +524,7 @@ static volatile uint32_t *hit_of(int i)
         NULL,
         (const void *)&s_h55,
         (const void *)&s_h56,
-        (const void *)&s_h57,
+        NULL,
         (const void *)&s_h58,
         (const void *)&s_h59,
         (const void *)&s_h60,
