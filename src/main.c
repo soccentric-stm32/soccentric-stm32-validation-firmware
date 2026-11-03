@@ -71,6 +71,7 @@ int main(void)
     hwval_test_register_led_btn(); /* LEDs + buttons (section 8.14)          */
     hwval_test_register_adc();  /* ADC1/2/3 (section 8.15)                   */
     hwval_test_register_dac();  /* DAC (section 8.16)                        */
+    hwval_test_register_tim();  /* TIM1-14 + LPTIM1 (section 8.17)           */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */
