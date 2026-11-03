@@ -214,8 +214,14 @@ void DMA1_Stream5_IRQHandler(void) { s_h16++; nest_enter(); nest_exit(); }
 static volatile uint32_t s_h17;
 void DMA1_Stream6_IRQHandler(void) { s_h17++; nest_enter(); nest_exit(); }
 
+/* ADC-012 (tests/test_adc.c) runs its counters through the shared
+ * ADC1/2/3 vector when its interrupt enables are set; default no-op. */
+void hwval_adc_irq_hook(void);
+
 static volatile uint32_t s_h18;
-void ADC_IRQHandler(void) { s_h18++; nest_enter(); nest_exit(); }
+void ADC_IRQHandler(void) { hwval_adc_irq_hook(); s_h18++; nest_enter(); nest_exit(); }
+
+__attribute__((weak)) void hwval_adc_irq_hook(void) { }
 
 static volatile uint32_t s_h19;
 void CAN1_TX_IRQHandler(void) { s_h19++; nest_enter(); nest_exit(); }
@@ -723,7 +729,7 @@ static tfw_result_t int_exti_lines(struct tfw_out *o)
     /* lines 0-2 owned by the chain, 3 by the masking test; SWIER the rest.
      * Handlers: GPIO EXTI0-4 + 9_5 + 15_10 group handlers count per PR. */
     int bad = 0;
-    uint32_t mask_wire = hwval_harness_detected(); /* harness wires give
+    uint64_t mask_wire = hwval_harness_detected(); /* harness wires give
                                                       real edges; software
                                                       SWIER works w/o too */
 

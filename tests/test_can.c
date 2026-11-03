@@ -169,7 +169,7 @@ static tfw_result_t can_mailboxes_filters(struct tfw_out *o)
 /* -------------------------------------------------- CAN-004..009 ------- */
 static tfw_result_t can_errors_busoffs(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)((mask >> 24UL) & 1UL); /* H21 */
     int ext = 0; /* transceiver module availability unknown here */
 

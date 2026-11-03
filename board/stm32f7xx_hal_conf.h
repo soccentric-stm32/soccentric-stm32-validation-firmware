@@ -24,6 +24,13 @@
 #define EXTERNAL_CLOCK_VALUE 12288000U
 
 #define VDD_VALUE   3300U
+/* legacy PHY-driver timeouts required by the (as-shipped) ETH HAL */
+#ifndef PHY_READ_TO
+#define PHY_READ_TO 5000U
+#endif
+#ifndef PHY_WRITE_TO
+#define PHY_WRITE_TO 5000U
+#endif
 #define TICK_INT_PRIORITY 15U
 #define USE_RTOS 0U
 #define PREFETCH_ENABLE 1U
@@ -38,6 +45,7 @@
 #define HAL_DMA_MODULE_ENABLED
 #define HAL_IWDG_MODULE_ENABLED
 #define HAL_CRC_MODULE_ENABLED
+#define HAL_ETH_MODULE_ENABLED      /* ETH-007/008 LwIP stack (section 11)   */
 
 #include "stm32f7xx_hal_rcc.h"
 #include "stm32f7xx_hal_gpio.h"
@@ -49,6 +57,7 @@
 #include "stm32f7xx_hal_dma.h"
 #include "stm32f7xx_hal_iwdg.h"
 #include "stm32f7xx_hal_crc.h"
+#include "stm32f7xx_hal_eth.h"
 
 /* Syscalls use the fault.c reporting path; HAL errors are not fatal by
  * default, tests assert explicitly. */

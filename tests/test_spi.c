@@ -224,7 +224,7 @@ static tfw_result_t spi_noloop(struct tfw_out *o)
 /* -------------------------------------------------- I2S-001..003 ------ */
 static tfw_result_t i2s_group(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)((mask & (3UL << 17UL)) == (3UL << 17UL)); /* H17/H19b? */
 
     /* I2S on SPI2 (PB13/PB14 conflict with ETH/LD3) and SPI3 (PB3/PB5):

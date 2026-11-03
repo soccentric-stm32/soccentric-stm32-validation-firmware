@@ -220,7 +220,7 @@ static tfw_result_t adc_ext_pins(struct tfw_out *o)
 /* ------------------------------------------------- ADC.004 (harness) ---- */
 static tfw_result_t adc_dac_loop(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
 
     if (((mask >> 0U) & 1U) == 0U) { /* H01 */
         (void)snprintf(o->reason, sizeof(o->reason),
@@ -475,6 +475,82 @@ static tfw_result_t adc_dma_noise_rate(struct tfw_out *o)
     return TFW_PASS;
 }
 
+/* ------------------------------------------------- ADC-012 -------------- */
+/* On the F767 ADC1/2/3 share the single ADC_IRQn vector (RM0410 vector
+ * table); test_int.c's ADC_IRQHandler owns it and calls this hook first
+ * (weak default = empty), so the EOC/JEOC/OVR counters are self-contained
+ * and only active while ADC.012 runs (interrupt-enable checked).        */
+static volatile uint32_t s_adc3_eoc, s_adc3_jeoc, s_adc3_ovr;
+
+void hwval_adc_irq_hook(void)
+{
+    if ((ADC3->CR1 & (ADC_CR1_EOCIE | ADC_CR1_JEOCIE | ADC_CR1_OVRIE)) == 0U) {
+        return;
+    }
+    uint32_t sr = ADC3->SR;
+
+    if ((sr & ADC_SR_EOC) != 0U)  { s_adc3_eoc++;  }
+    if ((sr & ADC_SR_JEOC) != 0U) { s_adc3_jeoc++; }
+    if ((sr & ADC_SR_OVR) != 0U)  { s_adc3_ovr++;  }
+    ADC3->SR = ~sr;                             /* clear (write 0)        */
+}
+
+static tfw_result_t adc_interrupts(struct tfw_out *o)
+{
+    volatile uint32_t sink = 0U;
+
+    adc_clk();
+    ADC->CCR |= ADC_CCR_TSVREFE;
+    ADC3->CR2 = 0U;
+    adc_on(ADC3);
+    ADC3->SQR1 = 0U;
+    ADC3->JSQR = (17UL << ADC_JSQR_JSQ1_Pos);   /* injected: VBAT ch      */
+    ADC3->JSQR |= (0UL << ADC_JSQR_JL_Pos);    /* 1 conversion (JL=00)   */
+    ADC3->SMPR1 = (2UL << (7U * 3U));
+    ADC3->SR = 0U;
+    ADC3->CR1 |= ADC_CR1_EOCIE | ADC_CR1_JEOCIE | ADC_CR1_OVRIE;
+    s_adc3_eoc = 0U; s_adc3_jeoc = 0U; s_adc3_ovr = 0U;
+    NVIC_EnableIRQ(ADC_IRQn);
+
+    /* EOC: two regular SW-start conversions */
+    ADC3->CR2 |= ADC_CR2_SWSTART;
+    { uint32_t tmo = 200000U;
+      while (((ADC3->SR & ADC_SR_EOC) == 0U) && (--tmo != 0U)) { ; }
+      sink += ADC3->DR; }
+    ADC3->CR2 |= ADC_CR2_SWSTART;
+    { uint32_t tmo = 200000U;
+      while (((ADC3->SR & ADC_SR_EOC) == 0U) && (--tmo != 0U)) { ; }
+      sink += ADC3->DR; }
+
+    /* JEOC: one injected conversion */
+    ADC3->CR2 |= ADC_CR2_JSWSTART;
+    { uint32_t tmo = 200000U;
+      while (((ADC3->SR & ADC_SR_JEOC) == 0U) && (--tmo != 0U)) { ; }
+      sink += ADC3->JDR1; }
+
+    /* OVR: stop reading DR, let the 4-word FIFO overflow */
+    for (int i = 0; i < 8; i++) { ADC3->CR2 |= ADC_CR2_SWSTART; }
+
+    vTaskDelay(10);
+    uint32_t eoc = s_adc3_eoc, jeoc = s_adc3_jeoc, ovr = s_adc3_ovr;
+    NVIC_DisableIRQ(ADC_IRQn);
+    ADC3->CR1 &= ~(ADC_CR1_EOCIE | ADC_CR1_JEOCIE | ADC_CR1_OVRIE);
+    ADC3->CR2 = 0U;
+    sink += ADC3->SR;
+
+    hwval_meas(o, "eoc=%lu jeoc=%lu ovr=%lu", (unsigned long)eoc,
+               (unsigned long)jeoc, (unsigned long)ovr);
+    hwval_lim(o, "EOC/JEOC/OVR each >= 1 hit, cleared (ADC-012)");
+    (void)sink;
+    if ((eoc == 0U) || (jeoc == 0U) || (ovr == 0U)) {
+        hwval_fail(o, "ADC3 interrupt counters: %lu/%lu/%lu",
+                   (unsigned long)eoc, (unsigned long)jeoc,
+                   (unsigned long)ovr);
+        return TFW_FAIL;
+    }
+    return TFW_PASS;
+}
+
 /* ----------------------------------------------------------------- table */
 const struct tfw_case g_adc_tests[] = {
     { .id = "ADC.001", .group = "ADC", .title = "resolutions 12/10/8/6 x3 ADCs",
@@ -502,6 +578,9 @@ const struct tfw_case g_adc_tests[] = {
       .level = TFW_LEVEL_S, .resets_mcu = 0, .timeout_ms = 5000U,
       .verifies = "ADC-008, ADC-010, ADC-011",
       .fn = adc_dma_noise_rate },
+    { .id = "ADC.012", .group = "ADC", .title = "EOC/JEOC/OVR interrupts (ADC3)",
+      .level = TFW_LEVEL_S, .resets_mcu = 0, .timeout_ms = 3000U,
+      .verifies = "ADC-012", .fn = adc_interrupts },
 };
 
 const size_t g_adc_test_count = sizeof(g_adc_tests) / sizeof(g_adc_tests[0]);

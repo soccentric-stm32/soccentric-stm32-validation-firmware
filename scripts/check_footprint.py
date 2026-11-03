@@ -96,7 +96,8 @@ def main() -> int:
         if lo is not None and hi is not None:
             used = hi - base
             state = "OK" if used <= total else "OVERFLOW"
-            print(f"    {label}: {used // 1024} KB used of "
+            used_s = f"{used / 1024:.1f}" if used >= 1024 else f"{used}"
+            print(f"    {label}: {used_s} KB used of "
                   f"{total // 1024} KB {state}")
 
     size = subprocess.run(

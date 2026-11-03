@@ -84,7 +84,9 @@ math(EXPR HWVAL_HEAP_BYTES "${HWVAL_HEAP_KB} * 1024")
 include_directories(src board tests
     "${CUBE_ROOT}/Drivers/CMSIS/Include"
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Include"
-    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Inc")
+    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Inc"
+    "${CUBE_ROOT}/Middlewares/Third_Party/LwIP/src/include"
+    board/lwip_arch)
 
 # --- Sources ----------------------------------------------------------------
 # HAL modules used so far. The list grows section by section (NFR-008):
@@ -140,6 +142,46 @@ list(APPEND PROJECT_SOURCES   tests/test_dac.c)
 list(APPEND PROJECT_SOURCES   tests/test_tim.c)
 list(APPEND PROJECT_SOURCES   tests/test_uart.c)
 list(APPEND PROJECT_SOURCES   tests/test_spi.c)
+list(APPEND PROJECT_SOURCES   tests/test_sai_spdif.c)
+
+# --- LwIP (SDK as shipped, CON-002): ETH-007/008 (section 8.27/section 11) --
+# The middleware compiles into a static lib with SDK-level warning policy
+# (-w) because the project -Werror policy does not extend to the SDK; the
+# project-owned glue (src/net_lwip.c, arch headers) stays under -Werror.
+set(LWIP_ROOT "${CUBE_ROOT}/Middlewares/Third_Party/LwIP/src")
+set(LWIP_SOURCES
+    "${LWIP_ROOT}/core/init.c"
+    "${LWIP_ROOT}/core/def.c"
+    "${LWIP_ROOT}/core/dns.c"
+    "${LWIP_ROOT}/core/inet_chksum.c"
+    "${LWIP_ROOT}/core/ip.c"
+    "${LWIP_ROOT}/core/mem.c"
+    "${LWIP_ROOT}/core/memp.c"
+    "${LWIP_ROOT}/core/netif.c"
+    "${LWIP_ROOT}/core/pbuf.c"
+    "${LWIP_ROOT}/core/raw.c"
+    "${LWIP_ROOT}/core/stats.c"
+    "${LWIP_ROOT}/core/sys.c"
+    "${LWIP_ROOT}/core/altcp.c"
+    "${LWIP_ROOT}/core/altcp_alloc.c"
+    "${LWIP_ROOT}/core/altcp_tcp.c"
+    "${LWIP_ROOT}/core/tcp.c"
+    "${LWIP_ROOT}/core/tcp_in.c"
+    "${LWIP_ROOT}/core/tcp_out.c"
+    "${LWIP_ROOT}/core/timeouts.c"
+    "${LWIP_ROOT}/core/udp.c"
+    "${LWIP_ROOT}/core/ipv4/autoip.c"
+    "${LWIP_ROOT}/core/ipv4/dhcp.c"
+    "${LWIP_ROOT}/core/ipv4/etharp.c"
+    "${LWIP_ROOT}/core/ipv4/icmp.c"
+    "${LWIP_ROOT}/core/ipv4/igmp.c"
+    "${LWIP_ROOT}/core/ipv4/ip4.c"
+    "${LWIP_ROOT}/core/ipv4/ip4_addr.c"
+    "${LWIP_ROOT}/core/ipv4/ip4_frag.c"
+    "${LWIP_ROOT}/netif/ethernet.c")
+list(APPEND PROJECT_SOURCES src/net_lwip.c)
+list(APPEND HAL_SOURCES
+    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_eth.c")
 list(APPEND PROJECT_SOURCES   tests/test_i2c.c)
 list(APPEND PROJECT_SOURCES   tests/test_can.c)
 list(APPEND PROJECT_SOURCES   tests/test_sd_qspi_fmc.c)
@@ -171,11 +213,52 @@ add_executable(hwval.elf ${PROJECT_SOURCES} ${HAL_SOURCES} ${FREERTOS_SOURCES} $
 target_compile_definitions(hwval.elf PRIVATE
     HWVAL_RTOS_HEAP_SIZE=${HWVAL_HEAP_BYTES})
 
+# LwIP: project-owned options/arch headers + SDK sources (warnings off;
+# the SDK is as-shipped per CON-002). NO_SYS polling, see lwipopts.h.
+add_library(lwip_sdk STATIC ${LWIP_SOURCES})
+target_include_directories(lwip_sdk PRIVATE
+    board
+    board/lwip_arch
+    "${CUBE_ROOT}/Drivers/CMSIS/Include"
+    "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Include"
+    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Inc"
+    "${LWIP_ROOT}/include")
+target_compile_options(lwip_sdk PRIVATE ${CPU_FLAGS} -O2 -w)
+target_compile_definitions(lwip_sdk PRIVATE
+    STM32F767xx USE_HAL_DRIVER HSE_VALUE=8000000U)
+target_link_libraries(hwval.elf lwip_sdk)
+
 # GEN-006: link code and constants into flash sectors 0-10 only; the linker
 # script (ld/STM32F767ZITx_FLASH.ld) fails the build on any overlap with
 # sector 11 (0x081C0000, kept free for the destructive flash tests ASM-004).
 target_link_options(hwval.elf PRIVATE
     "-T${CMAKE_SOURCE_DIR}/ld/STM32F767ZITx_FLASH.ld")
+
+# --- Static analysis (NFR-007) ---------------------------------------------
+# clang-tidy reuses the compile flags this very configure step produced, so
+# it must run from a configured build tree:  make lint / make lint-strict.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+find_program(CLANG_TIDY clang-tidy REQUIRED)
+option(HWVAL_LINT_STRICT "Treat any clang-tidy finding as an error (lint-strict)" OFF)
+if(HWVAL_LINT_STRICT)
+    set(HWVAL_LINT_FLAGS --warnings-as-errors=*)
+endif()
+
+# The target runs with the build dir as CWD, so make source paths absolute.
+set(HWVAL_LINT_SOURCES)
+foreach(_src ${PROJECT_SOURCES})
+    if(IS_ABSOLUTE "${_src}")
+        list(APPEND HWVAL_LINT_SOURCES "${_src}")
+    else()
+        list(APPEND HWVAL_LINT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${_src}")
+    endif()
+endforeach()
+add_custom_target(clang-tidy
+    COMMAND ${CLANG_TIDY} -quiet -p ${CMAKE_BINARY_DIR} ${HWVAL_LINT_FLAGS}
+            ${HWVAL_LINT_SOURCES}
+    COMMENT "Running clang-tidy over the project sources"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    VERBATIM)
 
 set(ELF "$<TARGET_FILE:hwval.elf>")
 add_custom_command(TARGET hwval.elf POST_BUILD

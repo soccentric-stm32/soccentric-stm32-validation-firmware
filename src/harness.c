@@ -85,16 +85,16 @@ static int pair_detect(const struct hwval_wire *w)
     return ok;
 }
 
-uint32_t hwval_harness_detected(void)
+uint64_t hwval_harness_detected(void)
 {
-    uint32_t mask = 0U;
+    uint64_t mask = 0U;
 
     for (uint8_t i = 0U; i < HWVAL_WIRE_TABLE_N; i++) {
         if (hwval_wire_table[i].verify != 0U) {
             continue; /* AF map not bench-verified yet: not reported */
         }
-        if ((pair_detect(&hwval_wire_table[i]) != 0) && (i < 32U)) {
-            mask |= 1U << i;
+        if (pair_detect(&hwval_wire_table[i]) != 0) {
+            mask |= (uint64_t)1U << i;
         }
     }
     return mask;
@@ -104,10 +104,10 @@ int hwval_harness_count(void) { return (int)HWVAL_WIRE_TABLE_N; }
 
 int hwval_harness_fitted(int index)
 {
-    if ((index < 0) || (index >= 32)) {
-        return 0; /* wires 32.. do not fit the uint32 mask (CL: extended) */
+    if ((index < 0) || (index >= (int)HWVAL_WIRE_TABLE_N)) {
+        return 0;
     }
-    return (int)((hwval_harness_detected() >> index) & 1UL);
+    return (int)((hwval_harness_detected() >> index) & 1ULL);
 }
 
 void hwval_harness_report(void)

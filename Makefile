@@ -19,6 +19,8 @@
 #   make debug          build, flash, then GDB halted at reset
 #   make gdbserver      OpenOCD GDB server on :3333
 #   make serial         serial console on the ST-LINK VCP (115200 8N1)
+#   make lint           clang-tidy static analysis (scripts/cppcheck.sh too)
+#   make lint-strict    clang-tidy, failing on any finding
 #   make probe          detect the ST-LINK and the target chip
 #   make size           show the firmware size
 #   make image          build the stm32-dev Docker image
@@ -39,8 +41,8 @@ OPENOCD    := openocd -f board/st_nucleo_f7.cfg
 
 .DEFAULT_GOAL := build
 
-.PHONY: all build configure clean rebuild flash erase reset debug gdbserver \
-        serial probe size image help
+.PHONY: all build configure clean rebuild lint lint-strict flash erase reset \
+        debug gdbserver serial probe size image help
 
 all: build
 
@@ -60,6 +62,14 @@ clean:
 
 rebuild: clean
 	@$(MAKE) --no-print-directory build
+
+# clang-tidy needs the compile commands from a configured build tree.
+lint: configure
+	$(DEV) run cmake --build /work/$(BUILD_DIR) --target clang-tidy
+
+lint-strict:
+	$(DEV) run cmake -S /work -B /work/$(BUILD_DIR) -G Ninja -DHWVAL_LINT_STRICT=ON
+	$(DEV) run cmake --build /work/$(BUILD_DIR) --target clang-tidy
 
 size:
 	@test -f $(ELF) || { echo "error: $(ELF) not found, run make build"; exit 1; }

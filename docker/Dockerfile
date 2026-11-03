@@ -23,6 +23,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         gcc-arm-none-eabi \
         binutils-arm-none-eabi \
+        clang-tidy \
         libnewlib-arm-none-eabi \
         libstdc++-arm-none-eabi-newlib \
         gdb-multiarch \

@@ -22,7 +22,7 @@ static void dac_clk(void) { __HAL_RCC_DAC_CLK_ENABLE(); }
 static tfw_result_t dac_channels(struct tfw_out *o)
 {
     volatile uint32_t *dhr12r[2] = { &DAC->DHR12R1, &DAC->DHR12R2 };
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)(((mask >> 0U) & 1U) && ((mask >> 1U) & 1U));
     int bad = 0;
 
@@ -148,7 +148,7 @@ static tfw_result_t dac_triggers(struct tfw_out *o)
 /* ------------------------------------------------- DAC-004 ------------ */
 static tfw_result_t dac_waves(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)((mask & 3U) == 3U);
     int ok = 1;
 
@@ -177,7 +177,7 @@ static tfw_result_t dac_waves(struct tfw_out *o)
 static tfw_result_t dac_dma(struct tfw_out *o)
 {
     static const uint16_t sine[256] = { 2048U };
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)((mask & 3U) == 3U);
     int ok = 1;
     uint32_t uerr;

@@ -135,7 +135,7 @@ static tfw_result_t tim_channels(struct tfw_out *o)
 {
     /* all CC channels in OC-toggle/PWM1/PWM2 modes via CCxIF flags; the
      * H22-wired pair measurement happens on the bench (Level L). */
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)((mask & (1UL << 25UL)) != 0UL); /* H22 sorted index */
     uint32_t chans = 0U;
 
@@ -373,7 +373,7 @@ static tfw_result_t tim_remaps(struct tfw_out *o)
  * 010/014: Level-L (harness) parts ------------------------------------ */
 static tfw_result_t tim_harness_level(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)(((mask >> 25U) & 1U) != 0U); /* H22 */
 
     if (!wired) {

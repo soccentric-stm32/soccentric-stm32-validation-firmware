@@ -79,6 +79,7 @@ void hwval_test_register_dac(void);
 void hwval_test_register_tim(void);
 void hwval_test_register_uart(void);
 void hwval_test_register_spi(void);
+void hwval_test_register_sai_spdif(void);
 void hwval_test_register_i2c(void);
 void hwval_test_register_can(void);
 void hwval_test_register_mem(void);

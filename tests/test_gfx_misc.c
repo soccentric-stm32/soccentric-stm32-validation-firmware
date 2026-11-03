@@ -190,7 +190,7 @@ static tfw_result_t jpeg_codec(struct tfw_out *o)
 /* -------------------------------------------------------- DCMI-001..003 - */
 static tfw_result_t dcmi_wired(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
 
     (void)snprintf(o->reason, sizeof(o->reason),
                    "NO_HARNESS (H31 capture wires); camera module = "
@@ -300,7 +300,7 @@ static tfw_result_t rng_tests(struct tfw_out *o)
 /* -------------------------------------------------------- CEC-001/002 -- */
 static tfw_result_t cec_group(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)(((mask >> 29UL) & 1UL) != 0UL); /* H27b? cec = pb6/pb8 */
 
     (void)snprintf(o->reason, sizeof(o->reason),

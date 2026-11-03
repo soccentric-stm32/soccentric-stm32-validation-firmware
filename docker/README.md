@@ -16,6 +16,7 @@ container.
 | Tool | Version (Ubuntu 24.04 packages) |
 |---|---|
 | `arm-none-eabi-gcc`, binutils, newlib, libstdc++ | 13.2.rel1 |
+| `clang-tidy` | 18.1 (static analysis, `make lint`) |
 | `gdb-multiarch` (also available as `arm-none-eabi-gdb`) | 15.1 |
 | `cmake`, `ninja`, `make` | 3.28 / 1.11 / 4.3 |
 | `openocd` | 0.12.0 |

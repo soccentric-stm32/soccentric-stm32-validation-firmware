@@ -102,7 +102,7 @@ static tfw_result_t i2c_scan(struct tfw_out *o)
 /* -------------------------------------------------- I2C-001..006,008 --- */
 static tfw_result_t i2c_features(struct tfw_out *o)
 {
-    uint32_t mask = hwval_harness_detected();
+    uint64_t mask = hwval_harness_detected();
     int wired = (int)(((mask >> 20UL) & 0xFUL) != 0UL); /* H20 family */
     int ok = 5;
 

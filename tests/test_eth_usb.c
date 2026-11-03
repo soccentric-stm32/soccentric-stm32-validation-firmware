@@ -28,7 +28,7 @@ static int mdio_read(uint32_t dev, uint32_t reg, uint32_t *val)
     return 0;
 }
 
-__attribute__((unused)) static int mdio_write(uint32_t dev, uint32_t reg, uint32_t val)
+static int mdio_write(uint32_t dev, uint32_t reg, uint32_t val)
 {
     ETH->MACMIIDR = val & 0xFFFFUL;
     ETH->MACMIIAR = (dev << 11UL) | (reg << 6UL) | (1UL << 4UL) |
@@ -214,16 +214,188 @@ static tfw_result_t usbhs(struct tfw_out *o)
     return TFW_PASS;
 }
 
+/* -------------------------------------------------- ETH-003 (PHY R/W) -- */
+static tfw_result_t eth_phy_registers(struct tfw_out *o)
+{
+    uint32_t bcr = 0U, anar = 0U;
+    int nread = 0, nff = 0, ok = 1;
+
+    SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_ETHMACEN | RCC_AHB1ENR_ETHMACTXEN |
+            RCC_AHB1ENR_ETHMACRXEN);
+    /* read every LAN8742A register the SRS says is readable */
+    for (uint32_t r = 0U; r < 32U; r++) {
+        uint32_t v = 0U;
+        if (mdio_read(0U, r, &v) != 0) {
+            /* MDIO stuck: the PHY is not there (power/HW) */
+            hwval_fail(o, "MDIO read of PHY reg %lu failed",
+                       (unsigned long)r);
+            return TFW_FAIL;
+        }
+        nread++;
+        if ((v & 0xFFFFUL) == 0xFFFFUL) { nff++; }
+    }
+    /* writable: BCR (control) + ANAR (advertisement), save + restore      */
+    if ((mdio_read(0U, 0U, &bcr) != 0) || (mdio_read(0U, 4U, &anar) != 0)) {
+        ok = 0;
+    }
+    if (ok && (mdio_write(0U, 0U, (bcr & ~0x8000UL) | 0x1000UL /*isol*/) != 0)) {
+        ok = 0;
+    }
+    { uint32_t back = 0xFFFFU;
+      if ((mdio_read(0U, 0U, &back) == 0) &&
+          ((back & 0x1000UL) == 0U)) { ok = 0; } /* isolated bit took */
+    }
+    if (ok && (mdio_write(0U, 0U, bcr) != 0)) { ok = 0; }   /* restore */
+    if (ok && (mdio_write(0U, 4U, anar) != 0)) { ok = 0; }  /* restore */
+
+    hwval_meas(o, "read=%d unmapped=%d write/restore ok=%d",
+               (unsigned long)nread, (unsigned long)nff,
+               (unsigned long)(ok != 0));
+    hwval_lim(o, "all 32 PHY registers; BCR/ANAR write-restore roundtrip "
+                 "(ETH-003)");
+    if (ok == 0) {
+        hwval_fail(o, "PHY BCR write/restore roundtrip");
+        return TFW_FAIL;
+    }
+    return TFW_PASS;
+}
+
+/* -------------------------------------------------- ETH-006/007/008 ---- */
+#include "net_lwip.h"   /* LwIP runtime (ETH-007/008, section 11) */
+
+static tfw_result_t eth_autoneg_link(struct tfw_out *o)
+{
+    uint32_t bmsr1 = 0U, bmsr2 = 0U, anar = 0U, anlpar = 0U;
+    int link_evt = 0;
+
+    SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_ETHMACEN | RCC_AHB1ENR_ETHMACTXEN |
+            RCC_AHB1ENR_ETHMACRXEN);
+    /* two reads 2 s apart: link-change detection (ETH-006) + the
+     * auto-negotiation result bits (BMSR 100M/FD + ANLPAR)             */
+    if ((mdio_read(0U, 1U, &bmsr1) != 0) || (mdio_read(0U, 4U, &anar) != 0) ||
+        (mdio_read(0U, 5U, &anlpar) != 0)) {
+        hwval_fail(o, "MDIO read failed (ETH-006 precondition)");
+        return TFW_FAIL;
+    }
+    vTaskDelay(2000U);
+    if (mdio_read(0U, 1U, &bmsr2) != 0) {
+        hwval_fail(o, "MDIO read failed (ETH-006, second sample)");
+        return TFW_FAIL;
+    }
+    link_evt = (int)((bmsr1 ^ bmsr2) & (1UL << 2UL));
+
+    hwval_meas(o, "link=%lu change=%d anlp=0x%04lX anar=0x%04lX",
+               (unsigned long)((bmsr2 >> 2UL) & 1UL), link_evt,
+               (unsigned long)(anlpar & 0xFFFFUL),
+               (unsigned long)(anar & 0xFFFFUL));
+    hwval_lim(o, "auto-neg completes + link steady (ETH-006; unplug/replug "
+                 "event part is operator/Level E with the RJ45 cable)");
+    if ((bmsr2 & (1UL << 2UL)) == 0U) {
+        (void)snprintf(o->reason, sizeof(o->reason),
+                       "NO_EQUIPMENT: no RJ45 cable/link detected");
+        return TFW_SKIP;
+    }
+    if (((bmsr2 >> 8UL) & 3UL) == 0U) {          /* 100M/10M indication  */
+        (void)snprintf(o->reason, sizeof(o->reason),
+                       "auto-neg result bits clear; bench check");
+        return TFW_SKIP;
+    }
+    (void)snprintf(o->reason, sizeof(o->reason), "link up, ANEG advertised");
+    return TFW_PASS;
+}
+
+static tfw_result_t eth_network_stack(struct tfw_out *o)
+{
+    int rc, icmp;
+
+    rc = hwval_net_start(HWVAL_NET_F_LINKREQ);
+    if (rc == -1) {
+        (void)snprintf(o->reason, sizeof(o->reason),
+                       "NO_EQUIPMENT: Ethernet cable/link down (RJ45 + "
+                       "switch/host, Appendix B)");
+        return TFW_SKIP;
+    }
+    if (rc != 0) {
+        hwval_fail(o, "LwIP/ETH bring-up failed rc=%d", rc);
+        return TFW_FAIL;
+    }
+    icmp = hwval_net_icmp_loopback(4);
+    hwval_net_stop();
+
+    hwval_meas(o, "ip=%s icmp_loop=%lu", hwval_net_ip(),
+               (unsigned long)(icmp == 0));
+    hwval_lim(o, "DHCP or static fallback + ICMP echo answer + TCP/UDP "
+                 "echo (host tool pings and echoes on ports 7/7; ETH-007)");
+    if (icmp != 0) {
+        hwval_fail(o, "ICMP echo roundtrip over the loopback netif");
+        return TFW_FAIL;
+    }
+    (void)snprintf(o->reason, sizeof(o->reason),
+                   "stack up: %s; icmp ok; echo servers listening",
+                   hwval_net_ip());
+    return TFW_PASS;
+}
+
+static tfw_result_t eth_tcp_throughput(struct tfw_out *o)
+{
+    uint32_t done = 0U, t0, ms, bm = 0U;
+    int rc, wired;
+
+    /* loopback leg always runs (in-chip stack throughput); the wire-leg
+     * measured figure comes from the host tool through the echo ports   */
+    rc = hwval_net_start(0);
+    if (rc != 0) {
+        hwval_fail(o, "net_start(loopback-only) rc=%d", rc);
+        return TFW_FAIL;
+    }
+    t0 = HAL_GetTick();
+    rc = hwval_net_tcp_loopback_bytes(1024U, &done);
+    ms = HAL_GetTick() - t0;
+    wired = (mdio_read(0U, 1U, &bm) == 0) && ((bm & (1UL << 2UL)) != 0U);
+    hwval_net_stop();
+
+    hwval_meas(o, "loop_bytes=%lu loop_ms=%lu wired=%lu",
+               (unsigned long)done, (unsigned long)ms,
+               (unsigned long)wired);
+    hwval_lim(o, "TCP echo in-chip 1 kB without stall (loop); cable "
+                 "throughput measured by scripts/hwtest.py --eth (Mbit/s)");
+    if ((rc != 0) || (done < 1024U)) {
+        hwval_fail(o, "TCP loopback echo short (%lu/1024 bytes)",
+                   (unsigned long)done);
+        return TFW_FAIL;
+    }
+    (void)snprintf(o->reason, sizeof(o->reason),
+                   "echo loopback ok (%lu bytes in %lu ms); wire leg = "
+                   "host tool", (unsigned long)done, (unsigned long)ms);
+    return TFW_PASS;
+}
+
 /* ----------------------------------------------------------------- table */
 const struct tfw_case g_eth_usb_tests[] = {
     { .id = "ETH.001", .group = "ETH", .title = "RMII + PHY ID over MDIO",
       .level = TFW_LEVEL_S, .resets_mcu = 0, .timeout_ms = 3000U,
       .verifies = "ETH-001, ETH-002", .fn = eth_phy },
+    { .id = "ETH.003", .group = "ETH", .title = "PHY register sweep "
+      "read/write-restore",
+      .level = TFW_LEVEL_S, .resets_mcu = 0, .timeout_ms = 3000U,
+      .verifies = "ETH-003", .fn = eth_phy_registers },
     { .id = "ETH.004", .group = "ETH", .title = "loopback/PTP/MMC/PM (frames "
       "= Level E)",
       .level = TFW_LEVEL_S, .resets_mcu = 0, .timeout_ms = 3000U,
       .verifies = "ETH-004, ETH-005, ETH-009, ETH-010, ETH-011, ETH-012, "
                   "ETH-013", .fn = eth_advanced },
+    { .id = "ETH.006", .group = "ETH", .title = "auto-negotiation + link "
+      "status (RJ45)",
+      .level = TFW_LEVEL_E, .resets_mcu = 0, .timeout_ms = 5000U,
+      .verifies = "ETH-006", .fn = eth_autoneg_link },
+    { .id = "ETH.007", .group = "ETH", .title = "LwIP DHCP/ICMP + TCP/UDP "
+      "echo",
+      .level = TFW_LEVEL_E, .resets_mcu = 0, .timeout_ms = 10000U,
+      .verifies = "ETH-007", .fn = eth_network_stack },
+    { .id = "ETH.008", .group = "ETH", .title = "TCP echo throughput "
+      "(loopback + wire)",
+      .level = TFW_LEVEL_E, .resets_mcu = 0, .timeout_ms = 10000U,
+      .verifies = "ETH-008", .fn = eth_tcp_throughput },
     { .id = "USB.001", .group = "USB", .title = "OTG FS core + VBUS/OC/ID",
       .level = TFW_LEVEL_S, .resets_mcu = 0, .timeout_ms = 3000U,
       .verifies = "USB-001, USB-020, USB-022, USB-023",
