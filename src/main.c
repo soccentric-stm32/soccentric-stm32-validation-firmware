@@ -49,6 +49,7 @@ int main(void)
     hwval_version_banner();     /* GEN-003                                   */
     hwval_reset_cause_report(); /* GEN-010                                   */
     report_previous_fault();    /* GEN-008 evidence after fault reset        */
+    hwval_bootcheck_evaluate(); /* TFW-007: post-reset test verdicts         */
     hwval_rtos_report_panic();  /* FRT-004/005 hook evidence after reset     */
     hwval_iwdg_start(HWVAL_IWDG_TIMEOUT_MS); /* GEN-009                      */
 

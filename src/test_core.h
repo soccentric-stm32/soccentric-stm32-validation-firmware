@@ -1,12 +1,10 @@
 /*
- * test_core.h - HWVAL test framework core (sections 5+7)
+ * test_core.h - HWVAL test framework (sections 5+7)
  *
  * Author:  Sandesh Ghimire <sandesh@soccentric.com>
  * Date:    2026-11-02
- * SRS:     TFW-001..TFW-008, ENV-004, FRT-010..FRT-013, CLI-023..CLI-031.
- *          This header is the minimal core used by the section-5 RTOS
- *          self-tests; section 7 adds result persistence, JSON, report,
- *          filters and the fixed run order.
+ * SRS:     TFW-001..TFW-008, TFW-010..TFW-022, ENV-004, FRT-010..FRT-013,
+ *          CLI-023..CLI-035, TFW-007 (bootcheck protocol).
  */
 
 #ifndef HWVAL_TEST_CORE_H
@@ -26,8 +24,23 @@ typedef enum {
 /* Test levels (section 3.2). */
 typedef enum { TFW_LEVEL_S = 0, TFW_LEVEL_L = 1, TFW_LEVEL_E = 2 } tfw_level_t;
 
-/* One test case (TFW-001): id, group, title, level, operator/destructive
- * flags, timeout, verified requirement ids and the run function. */
+/* What a test writes: details for the FAIL/SKIP line (TFW-004) and the
+ * machine-readable measured/limits fields (TFW-011). */
+struct tfw_out {
+    char reason[96];
+    char measured[48];
+    char limits[48];
+};
+
+#define HWVAL_REASON_BUF 96
+
+/* printf-style helpers every test uses. */
+void hwval_fr(char *dst, size_t n, const char *fmt, ...);           /* reason   */
+void hwval_fail(struct tfw_out *o, const char *fmt, ...);           /* FAIL why */
+void hwval_meas(struct tfw_out *o, const char *fmt, ...);           /* measured */
+void hwval_lim(struct tfw_out *o, const char *fmt, ...);            /* limits   */
+
+/* One test case (TFW-001). */
 struct tfw_case {
     const char    *id;
     const char    *group;
@@ -35,48 +48,65 @@ struct tfw_case {
     tfw_level_t    level;
     uint8_t        needs_operator;
     uint8_t        destructive;
+    uint8_t        resets_mcu;   /* TFW-006/007: runs last, bootcheck arm  */
     uint32_t       timeout_ms;
-    const char    *verifies;   /* requirement id list, e.g. "FRT-020"    */
-    tfw_result_t (*fn)(char *reason, size_t len); /* 0 = pass, 2 = skip, ... */
+    const char    *verifies;     /* requirement ids, e.g. "FRT-020"        */
+    tfw_result_t (*fn)(struct tfw_out *o);
 };
+
+/* Registration: each test file calls hwval_test_register() once at boot
+ * (TFW-002 single table). The framework sorts into the fixed order of
+ * TFW-006: S, L, E, destructive, MCU-resetting last. */
+void hwval_test_register(const struct tfw_case *table, size_t count);
 
 /* Section-5 registration entry point (tests/test_rtos.c). */
 void hwval_test_register_rtos(void);
 
-/* Registration: called once at boot from each test file (TFW-002). */
-void hwval_test_register(const struct tfw_case *table, size_t count);
 size_t hwval_test_count(void);
 const struct tfw_case *hwval_test_at(size_t index);
 
-/* Runner body executed by the Runner task (FRT-010; TFW-006 order grows to
- * the full fixed order in section 7 — for now: every non-operator,
- * non-destructive Level-S test, once per wake-up). */
+/* Runner body executed by the Runner task: the fixed-order suite minus
+ * operator/destructive cases (SAFE-005) evaluated preconditions of every
+ * case itself (ENV-002/ENV-003). */
 void hwval_test_all(void);
 
-/* Progress/state queries for the CLI and the Watchdog task (FRT-012/013).
- * The Watchdog stops kicking IWDG when this reports an expired Runner. */
+/* `run <id|group|all> [flags]` (CLI-024..CLI-026): flags string holds
+ * space-separated options: --level S,L,E --no-operator --destructive
+ * --repeat N --until-fail. Defaults: all levels, operator allowed,
+ * destructive NOT allowed. Returns cases executed. */
+int hwval_test_run_sel(const char *selector, const char *flags);
+
+/* Progress/state queries for the CLI and Watchdog (FRT-012/013). */
 int hwval_test_running(void);
 int hwval_test_failed(void);
 int hwval_test_runner_progress_expired(void);
 
-/* Cooperative abort (FRT-011, CLI-027): tests poll this in their loops. */
+/* Cooperative abort (FRT-011, CLI-027). Tests poll between steps; on
+ * timeout the watchdog reset is the hard backstop (TFW-003). */
 void hwval_test_request_abort(void);
 int  hwval_test_abort_requested(void);
 
-/* Session results, readable by `results`/`report` (CLI-028/029). */
+/* A test result row of the session (TFW-010..TFW-012, TFW-022). */
 typedef struct {
+    const struct tfw_case *owner;   /* id/group from the registered table */
     tfw_result_t result;
     uint32_t     duration_ms;
     char         reason[96];
+    char         measured[48];
+    char         limits[48];
 } hwval_test_result_t;
 
 const hwval_test_result_t *hwval_test_result_of(size_t index);
-#define HWVAL_REASON_BUF 96
 
-/* Run selector for the `run` command (CLI-024): id, group or "all".
- * Returns the number of cases actually run (skipped operator/destructive
- * cases are recorded as SKIP, not counted as run). Section 7 adds level
- * filters, --repeat and the fixed order. */
-int hwval_test_run_sel(const char *selector, const char *flags);
+/* Reset-surviving results (TFW-022): magic + CRC in .noinit; restored at
+ * boot unless `results clear` was the last command. */
+void hwval_results_clear(void);
+uint32_t hwval_results_crc(void);
+
+/* TFW-007: tests that reset the MCU arm this before NVIC_SystemReset and
+ * the boot path reports the outcome. */
+void hwval_bootcheck_arm(uint32_t case_id_hash, tfw_result_t expect);
+/* Boot-time evaluation; prints the verdict banner once and clears. */
+void hwval_bootcheck_evaluate(void);
 
 #endif /* HWVAL_TEST_CORE_H */

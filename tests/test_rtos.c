@@ -22,15 +22,7 @@
 #include "test_core.h"
 
 /* reason helper: first failure wins */
-static void fr(char *buf, size_t len, const char *fmt, ...)
-{
-    va_list ap;
-
-    va_start(ap, fmt);
-    (void)vsnprintf(buf, len, fmt, ap);
-    va_end(ap);
-}
-
+/* failure reason helper: hwval_fail() from the framework (TFW-004) */
 /* --------------------------------------------------------------- FRT-020 */
 /* The test task increments only when notified — deterministic lifecycle
  * checks without timing races. */
@@ -62,14 +54,14 @@ static int notify_t20(uint32_t what)
                            : 0;
 }
 
-static tfw_result_t test_tasks(char *b, size_t l)
+static tfw_result_t test_tasks(struct tfw_out *o)
 {
     s_t20 = NULL;
     s_t20_ctr = 0U;
 
     BaseType_t ok = xTaskCreate(t20_body, "t20", 256, NULL, 5, &s_t20);
     if (ok != pdPASS) {
-        fr(b, l, "xTaskCreate failed");
+        hwval_fail(o, "xTaskCreate failed");
         return TFW_FAIL;
     }
     vTaskDelay(2U);
@@ -78,7 +70,7 @@ static tfw_result_t test_tasks(char *b, size_t l)
     vTaskDelay(pdMS_TO_TICKS(30));
     uint32_t c1 = s_t20_ctr;
     if (c1 < 1U) {
-        fr(b, l, "task did not run");
+        hwval_fail(o, "task did not run");
         vTaskDelete(s_t20);
         return TFW_FAIL;
     }
@@ -88,7 +80,7 @@ static tfw_result_t test_tasks(char *b, size_t l)
     (void)notify_t20(1); /* ignored while suspended */
     vTaskDelay(pdMS_TO_TICKS(30));
     if (s_t20_ctr != c1) {
-        fr(b, l, "suspended task still ran");
+        hwval_fail(o, "suspended task still ran");
         vTaskResume(s_t20);
         vTaskDelay(pdMS_TO_TICKS(10));
         vTaskDelete(s_t20);
@@ -100,7 +92,7 @@ static tfw_result_t test_tasks(char *b, size_t l)
     (void)notify_t20(1);
     vTaskDelay(pdMS_TO_TICKS(30));
     if (s_t20_ctr == c1) {
-        fr(b, l, "resumed task did not run");
+        hwval_fail(o, "resumed task did not run");
         vTaskDelete(s_t20);
         return TFW_FAIL;
     }
@@ -108,7 +100,7 @@ static tfw_result_t test_tasks(char *b, size_t l)
     UBaseType_t saved = uxTaskPriorityGet(s_t20);
     vTaskPrioritySet(s_t20, 8);
     if (uxTaskPriorityGet(s_t20) != 8U) {
-        fr(b, l, "priority set did not apply");
+        hwval_fail(o, "priority set did not apply");
         vTaskPrioritySet(s_t20, saved);
         vTaskDelete(s_t20);
         return TFW_FAIL;
@@ -128,7 +120,7 @@ static tfw_result_t test_tasks(char *b, size_t l)
         (void)notify_t20(1);
         vTaskDelay(pdMS_TO_TICKS(30));
         if (s_t20_ctr != c1 + 1U) {
-            fr(b, l, "deleted task still ran");
+            hwval_fail(o, "deleted task still ran");
             return TFW_FAIL;
         }
     }
@@ -168,13 +160,13 @@ static void fpu_b(void *arg)
     vTaskDelete(NULL);
 }
 
-static tfw_result_t test_fpu_lazy_stacking(char *b, size_t l)
+static tfw_result_t test_fpu_lazy_stacking(struct tfw_out *o)
 {
     s_fpa_bits = 0U; s_fpb_bits = 0U; s_fpa_done = NULL; s_fpb_done = NULL;
 
     if (xTaskCreate(fpu_a, "fpa", 512, NULL, 4, NULL) != pdPASS ||
         xTaskCreate(fpu_b, "fpb", 512, NULL, 4, NULL) != pdPASS) {
-        fr(b, l, "task create failed");
+        hwval_fail(o, "task create failed");
         return TFW_FAIL;
     }
     /* FP ops in THIS task, interleaved with the workers' switches */
@@ -190,7 +182,7 @@ static tfw_result_t test_fpu_lazy_stacking(char *b, size_t l)
         vTaskDelay(1U);
     }
     if (s_fpa_done == NULL || s_fpb_done == NULL) {
-        fr(b, l, "workers did not finish (a=%p b=%p)",
+        hwval_fail(o, "workers did not finish (a=%p b=%p)",
            (void *)s_fpa_done, (void *)s_fpb_done);
         return TFW_FAIL;
     }
@@ -208,7 +200,7 @@ static tfw_result_t test_fpu_lazy_stacking(char *b, size_t l)
     memcpy(&exp_b, &eb, 4U);
     
     if (s_fpa_bits != exp_a || s_fpb_bits != exp_b) {
-        fr(b, l, "FP mismatch a=%08lX/%08lX b=%08lX/%08lX",
+        hwval_fail(o, "FP mismatch a=%08lX/%08lX b=%08lX/%08lX",
            (unsigned long)s_fpa_bits, (unsigned long)exp_a,
            (unsigned long)s_fpb_bits, (unsigned long)exp_b);
         return TFW_FAIL;
@@ -221,7 +213,7 @@ static tfw_result_t test_fpu_lazy_stacking(char *b, size_t l)
     memcpy(&got_h, &here, 4U);
     memcpy(&exp_h, &eh, 4U);
     if (got_h != exp_h) {
-        fr(b, l, "caller FP context corrupted");
+        hwval_fail(o, "caller FP context corrupted");
         return TFW_FAIL;
     }
     return TFW_PASS;
@@ -252,27 +244,27 @@ static void t_high(void *arg)
     vTaskDelete(NULL);
 }
 
-static tfw_result_t test_kernel_objects(char *b, size_t l)
+static tfw_result_t test_kernel_objects(struct tfw_out *o)
 {
     /* --- queue: fill, overflow, drain, timeout --- */
     QueueHandle_t q = xQueueCreate(3, sizeof(uint32_t));
     uint32_t v = 0U;
 
-    if (q == NULL) { fr(b, l, "queue create"); return TFW_FAIL; }
+    if (q == NULL) { hwval_fail(o, "queue create"); return TFW_FAIL; }
     for (uint32_t i = 0; i < 3U; i++) {
         if (xQueueSend(q, &i, 0) != pdPASS) {
-            fr(b, l, "queue send %lu failed", (unsigned long)i);
+            hwval_fail(o, "queue send %lu failed", (unsigned long)i);
             vQueueDelete(q);
             return TFW_FAIL;
         }
     }
     if (xQueueSend(q, &v, pdMS_TO_TICKS(50)) != errQUEUE_FULL) {
-        fr(b, l, "overflow send unexpectedly accepted");
+        hwval_fail(o, "overflow send unexpectedly accepted");
         vQueueDelete(q);
         return TFW_FAIL;
     }
     if (xQueueReceive(q, &v, 0) != pdTRUE || v != 0U) {
-        fr(b, l, "queue receive wrong");
+        hwval_fail(o, "queue receive wrong");
         vQueueDelete(q);
         return TFW_FAIL;
     }
@@ -280,7 +272,7 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
         (void)xQueueReceive(q, &v, 0);
     }
     if (xQueueReceive(q, &v, pdMS_TO_TICKS(50)) != errQUEUE_EMPTY) {
-        fr(b, l, "empty receive did not time out");
+        hwval_fail(o, "empty receive did not time out");
         vQueueDelete(q);
         return TFW_FAIL;
     }
@@ -288,15 +280,15 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
 
     /* --- binary semaphore --- */
     SemaphoreHandle_t bs = xSemaphoreCreateBinary();
-    if (bs == NULL) { fr(b, l, "binary sem create"); return TFW_FAIL; }
+    if (bs == NULL) { hwval_fail(o, "binary sem create"); return TFW_FAIL; }
     if (xSemaphoreTake(bs, 0) != pdFALSE) {
-        fr(b, l, "binary take succeeded before give");
+        hwval_fail(o, "binary take succeeded before give");
         vSemaphoreDelete(bs);
         return TFW_FAIL;
     }
     (void)xSemaphoreGive(bs);
     if (xSemaphoreTake(bs, 0) != pdTRUE) {
-        fr(b, l, "binary take after give failed");
+        hwval_fail(o, "binary take after give failed");
         vSemaphoreDelete(bs);
         return TFW_FAIL;
     }
@@ -304,11 +296,11 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
 
     /* --- counting semaphore capped at 5 --- */
     SemaphoreHandle_t cs = xSemaphoreCreateCounting(5, 0);
-    if (cs == NULL) { fr(b, l, "counting sem create"); return TFW_FAIL; }
+    if (cs == NULL) { hwval_fail(o, "counting sem create"); return TFW_FAIL; }
     int gave = 0;
     while (gave < 6 && xSemaphoreGive(cs) == pdTRUE) { gave++; }
     if (gave != 5) {
-        fr(b, l, "counting max not enforced (gave %d)", gave);
+        hwval_fail(o, "counting max not enforced (gave %d)", gave);
         vSemaphoreDelete(cs);
         return TFW_FAIL;
     }
@@ -316,12 +308,12 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
 
     /* --- mutex priority inheritance --- */
     SemaphoreHandle_t mx = xSemaphoreCreateMutex();
-    if (mx == NULL) { fr(b, l, "mutex create"); return TFW_FAIL; }
+    if (mx == NULL) { hwval_fail(o, "mutex create"); return TFW_FAIL; }
     s_low = NULL;
     s_high = NULL;
     if (xTaskCreate(t_low, "plw", 256, (void *)mx, 2, &s_low) != pdPASS ||
         xTaskCreate(t_high, "phw", 256, (void *)mx, 7, &s_high) != pdPASS) {
-        fr(b, l, "inheritance task create failed");
+        hwval_fail(o, "inheritance task create failed");
         vTaskDelete(s_low);
         vSemaphoreDelete(mx);
         return TFW_FAIL;
@@ -331,7 +323,7 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
     vTaskDelay(pdMS_TO_TICKS(250));
     UBaseType_t lp = uxTaskPriorityGet(s_low);
     if (lp != 7U) {
-        fr(b, l, "no priority inheritance (prio=%lu)", (unsigned long)lp);
+        hwval_fail(o, "no priority inheritance (prio=%lu)", (unsigned long)lp);
         if (s_low != NULL) { vTaskDelete(s_low); }
         if (s_high != NULL) { vTaskDelete(s_high); }
         vSemaphoreDelete(mx);
@@ -340,7 +332,7 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
     vTaskDelay(pdMS_TO_TICKS(500)); /* t=750: released and restored */
     lp = (s_low != NULL) ? uxTaskPriorityGet(s_low) : 2U;
     if (lp != 2U) {
-        fr(b, l, "priority not restored (prio=%lu)", (unsigned long)lp);
+        hwval_fail(o, "priority not restored (prio=%lu)", (unsigned long)lp);
         if (s_low != NULL) { vTaskDelete(s_low); }
         if (s_high != NULL) { vTaskDelete(s_high); }
         vSemaphoreDelete(mx);
@@ -352,22 +344,22 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
 
     /* --- event group --- */
     EventGroupHandle_t eg = xEventGroupCreate();
-    if (eg == NULL) { fr(b, l, "event group create"); return TFW_FAIL; }
+    if (eg == NULL) { hwval_fail(o, "event group create"); return TFW_FAIL; }
     EventBits_t got = xEventGroupSetBits(eg, 0x5);
     if (got != 0x5) {
-        fr(b, l, "event set returned %lX", (unsigned long)got);
+        hwval_fail(o, "event set returned %lX", (unsigned long)got);
         vEventGroupDelete(eg);
         return TFW_FAIL;
     }
     got = xEventGroupWaitBits(eg, 0x5, pdTRUE, pdTRUE, pdMS_TO_TICKS(50));
     if ((got & 0x5) != 0x5) {
-        fr(b, l, "event wait lost bits");
+        hwval_fail(o, "event wait lost bits");
         vEventGroupDelete(eg);
         return TFW_FAIL;
     }
     got = xEventGroupWaitBits(eg, 0x5, pdTRUE, pdTRUE, pdMS_TO_TICKS(50));
     if (got != 0U) {
-        fr(b, l, "event bits not cleared");
+        hwval_fail(o, "event bits not cleared");
         vEventGroupDelete(eg);
         return TFW_FAIL;
     }
@@ -379,19 +371,19 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
     (void)xTaskNotify(me, 1UL, eIncrement);
     uint32_t notif = 0U;
     if (xTaskNotifyWait(0, 0xFFFFFFFF, &notif, 0) != pdTRUE || notif != 2U) {
-        fr(b, l, "notify count %lu", (unsigned long)notif);
+        hwval_fail(o, "notify count %lu", (unsigned long)notif);
         return TFW_FAIL;
     }
 
     /* --- stream buffer --- */
     StreamBufferHandle_t sb = xStreamBufferCreate(64, 1);
-    if (sb == NULL) { fr(b, l, "stream buffer create"); return TFW_FAIL; }
+    if (sb == NULL) { hwval_fail(o, "stream buffer create"); return TFW_FAIL; }
     char txb[8] = "abc";
     char rxb[8] = {0};
     size_t n = xStreamBufferSend(sb, txb, 3, 0);
     if (n != 3U || xStreamBufferReceive(sb, rxb, 8, 0) != 3U ||
         memcmp(txb, rxb, 3) != 0) {
-        fr(b, l, "stream buffer data mismatch");
+        hwval_fail(o, "stream buffer data mismatch");
         vStreamBufferDelete(sb);
         return TFW_FAIL;
     }
@@ -399,13 +391,13 @@ static tfw_result_t test_kernel_objects(char *b, size_t l)
 
     /* --- message buffer --- */
     MessageBufferHandle_t mb = xMessageBufferCreate(128);
-    if (mb == NULL) { fr(b, l, "message buffer create"); return TFW_FAIL; }
+    if (mb == NULL) { hwval_fail(o, "message buffer create"); return TFW_FAIL; }
     char txc[5] = "wxyz";
     char rxc[8] = {0};
     (void)xMessageBufferSend(mb, txc, 5, 0);
     if (xMessageBufferReceive(mb, rxc, 8, 0) != 5U ||
         memcmp(txc, rxc, 5) != 0) {
-        fr(b, l, "message buffer data mismatch");
+        hwval_fail(o, "message buffer data mismatch");
         vMessageBufferDelete(mb);
         return TFW_FAIL;
     }
@@ -439,7 +431,7 @@ static void reload_cb(TimerHandle_t t)
     s_rl_fires++;
 }
 
-static tfw_result_t test_timers(char *b, size_t l)
+static tfw_result_t test_timers(struct tfw_out *o)
 {
     s_os_fires = 0U;
     s_rl_fires = 0U;
@@ -450,7 +442,7 @@ static tfw_result_t test_timers(char *b, size_t l)
     tmr_reload  = xTimerCreate("rl1", pdMS_TO_TICKS(250), pdTRUE, NULL,
                                reload_cb);
     if (tmr_oneshot == NULL || tmr_reload == NULL) {
-        fr(b, l, "timer create failed");
+        hwval_fail(o, "timer create failed");
         return TFW_FAIL;
     }
     xTimerStart(tmr_oneshot, 0);
@@ -460,13 +452,13 @@ static tfw_result_t test_timers(char *b, size_t l)
     xTimerStop(tmr_reload, 0);
 
     if (s_os_fires != 1U) {
-        fr(b, l, "one-shot fired %lu times", (unsigned long)s_os_fires);
+        hwval_fail(o, "one-shot fired %lu times", (unsigned long)s_os_fires);
         xTimerDelete(tmr_oneshot, 0);
         xTimerDelete(tmr_reload, 0);
         return TFW_FAIL;
     }
     if (s_rl_fires < 3U) {
-        fr(b, l, "auto-reload fired only %lu times",
+        hwval_fail(o, "auto-reload fired only %lu times",
            (unsigned long)s_rl_fires);
         xTimerDelete(tmr_oneshot, 0);
         xTimerDelete(tmr_reload, 0);
@@ -476,7 +468,7 @@ static tfw_result_t test_timers(char *b, size_t l)
     uint32_t mean = s_rl_delta_sum / (s_rl_fires - 1U);
     if ((int32_t)mean < (int32_t)(250U - 1U) ||
         (int32_t)mean > (int32_t)(250U + 1U)) {
-        fr(b, l, "mean period %lu ms not 250+-1", (unsigned long)mean);
+        hwval_fail(o, "mean period %lu ms not 250+-1", (unsigned long)mean);
         xTimerDelete(tmr_oneshot, 0);
         xTimerDelete(tmr_reload, 0);
         return TFW_FAIL;
@@ -490,7 +482,7 @@ static tfw_result_t test_timers(char *b, size_t l)
 void hwval_dwt_stats_init(void); /* rtos.c — CYCCNT source */
 
 /* TIM2 as a 32-bit 1 MHz reference against the 1 kHz SysTick tick. */
-static tfw_result_t test_tick_rate(char *b, size_t l)
+static tfw_result_t test_tick_rate(struct tfw_out *o)
 {
     __HAL_RCC_TIM2_CLK_ENABLE();
 
@@ -512,7 +504,7 @@ static tfw_result_t test_tick_rate(char *b, size_t l)
     uint32_t elapsed = t1 - t0;
     int64_t err = (int64_t)(uint64_t)elapsed - 1000000LL;
     if (err < -1000LL || err > 1000LL) { /* +-0.1 % */
-        fr(b, l, "tick drift %ld us in 1 s (counts=%lu)",
+        hwval_fail(o, "tick drift %ld us in 1 s (counts=%lu)",
            (long)err, (unsigned long)elapsed);
         return TFW_FAIL;
     }
@@ -549,7 +541,7 @@ static void hi_task(void *arg)
     }
 }
 
-static tfw_result_t test_latencies(char *b, size_t l)
+static tfw_result_t test_latencies(struct tfw_out *o)
 {
     hwval_dwt_stats_init();
 
@@ -566,7 +558,7 @@ static tfw_result_t test_latencies(char *b, size_t l)
     }
     NVIC_DisableIRQ(TIM2_IRQn);
     if (!s_irq_captured) {
-        fr(b, l, "TIM2 pend did not fire handler");
+        hwval_fail(o, "TIM2 pend did not fire handler");
         return TFW_FAIL;
     }
     uint32_t irq_latency = s_irq_entry_cycles - pre;
@@ -576,12 +568,12 @@ static tfw_result_t test_latencies(char *b, size_t l)
     TaskHandle_t hi = NULL;
 
     if (q == NULL) {
-        fr(b, l, "queue create failed");
+        hwval_fail(o, "queue create failed");
         return TFW_FAIL;
     }
     s_sw_entry_cycles = 0U;
     if (xTaskCreate(hi_task, "hi", 256, (void *)q, 7, &hi) != pdPASS) {
-        fr(b, l, "hi task create failed");
+        hwval_fail(o, "hi task create failed");
         vQueueDelete(q);
         return TFW_FAIL;
     }
@@ -594,33 +586,33 @@ static tfw_result_t test_latencies(char *b, size_t l)
     vQueueDelete(q);
 
     if (irq_latency == 0U || switch_cycles == 0U) {
-        fr(b, l, "latency not captured (irq=%lu sw=%lu)",
+        hwval_fail(o, "latency not captured (irq=%lu sw=%lu)",
            (unsigned long)irq_latency, (unsigned long)switch_cycles);
         return TFW_FAIL;
     }
-    fr(b, l, "irq-latency=%lu cyc ctx-switch=%lu cyc",
+    hwval_fail(o, "irq-latency=%lu cyc ctx-switch=%lu cyc",
        (unsigned long)irq_latency, (unsigned long)switch_cycles);
     return TFW_PASS;
 }
 
 /* --------------------------------------------------------------- FRT-025 */
-static tfw_result_t test_tasklist_stats(char *b, size_t l)
+static tfw_result_t test_tasklist_stats(struct tfw_out *o)
 {
     UBaseType_t n = uxTaskGetNumberOfTasks();
     if (n < 4U) {
-        fr(b, l, "suspicious task count %lu", (unsigned long)n);
+        hwval_fail(o, "suspicious task count %lu", (unsigned long)n);
         return TFW_FAIL;
     }
 
     TaskStatus_t *st = (TaskStatus_t *)pvPortMalloc(n * sizeof(TaskStatus_t));
     if (st == NULL) {
-        fr(b, l, "pvPortMalloc of status failed");
+        hwval_fail(o, "pvPortMalloc of status failed");
         return TFW_FAIL;
     }
     uint32_t total_runtime = 0U;
     UBaseType_t got = uxTaskGetSystemState(st, n, &total_runtime);
     if (got != n) {
-        fr(b, l, "uxTaskGetSystemState %lu/%lu",
+        hwval_fail(o, "uxTaskGetSystemState %lu/%lu",
            (unsigned long)got, (unsigned long)n);
         vPortFree(st);
         return TFW_FAIL;
@@ -628,7 +620,7 @@ static tfw_result_t test_tasklist_stats(char *b, size_t l)
     for (UBaseType_t i = 0; i < n; i++) {
         UBaseType_t hwm = uxTaskGetStackHighWaterMark(st[i].xHandle);
         if (hwm == 0U) {
-            fr(b, l, "task %s has zero stack headroom", st[i].pcTaskName);
+            hwval_fail(o, "task %s has zero stack headroom", st[i].pcTaskName);
             vPortFree(st);
             return TFW_FAIL;
         }
@@ -637,14 +629,14 @@ static tfw_result_t test_tasklist_stats(char *b, size_t l)
 
     char *stats = (char *)pvPortMalloc(2048);
     if (stats == NULL) {
-        fr(b, l, "stats buffer alloc failed");
+        hwval_fail(o, "stats buffer alloc failed");
         return TFW_FAIL;
     }
     vTaskGetRunTimeStats(stats);
     int ok = (strstr(stats, "cli") != NULL) && (strstr(stats, "%") != NULL);
     vPortFree(stats);
     if (!ok) {
-        fr(b, l, "run-time stats empty");
+        hwval_fail(o, "run-time stats empty");
         return TFW_FAIL;
     }
     return TFW_PASS;
@@ -653,32 +645,42 @@ static tfw_result_t test_tasklist_stats(char *b, size_t l)
 /* --------------------------------------------------------------- FRT-026 */
 /* Deliberate overflow / oversize allocation — the hooks end in a reset, so
  * this only runs through the CLI with destructive allowed (section 7). */
-static tfw_result_t test_hooks_destructive(char *b, size_t l)
+static tfw_result_t test_hooks_destructive(struct tfw_out *o)
 {
-    (void)l;
-    (void)snprintf(b, HWVAL_REASON_BUF, "destructive; run via CLI");
+    (void)snprintf(o->reason, sizeof(o->reason), "destructive; run via CLI");
     return TFW_SKIP;
 }
 
 /* ----------------------------------------------------------------- table */
 const struct tfw_case g_rtos_tests[] = {
-    { "RTOS.020",      "RTOS", "task create/suspend/resume/prio/delete",
-      TFW_LEVEL_S, 0, 0, 1500U, "FRT-020",                test_tasks },
-    { "RTOS.021",      "RTOS", "queues, semaphores, events, notify, buffers",
-      TFW_LEVEL_S, 0, 0, 3000U, "FRT-021",                test_kernel_objects },
-    { "RTOS.021.FPU",  "RTOS", "lazy FPU context across 3 tasks",
-      TFW_LEVEL_S, 0, 0, 2000U, "FRT-009",                test_fpu_lazy_stacking },
-    { "RTOS.022",      "RTOS", "software timer period accuracy",
-      TFW_LEVEL_S, 0, 0, 2000U, "FRT-022",                test_timers },
-    { "RTOS.023",      "RTOS", "1 kHz tick vs TIM2 +-0.1 %",
-      TFW_LEVEL_S, 0, 0, 2000U, "FRT-023, FRT-002",       test_tick_rate },
-    { "RTOS.024",      "RTOS", "IRQ latency + context switch in cycles",
-      TFW_LEVEL_S, 0, 0, 2000U, "FRT-024",                test_latencies },
-    { "RTOS.025",      "RTOS", "task list, runtime stats, stack headroom",
-      TFW_LEVEL_S, 0, 0, 1000U, "FRT-025",                test_tasklist_stats },
-    { "RTOS.026",      "RTOS", "overflow/malloc hooks (resets MCU)",
-      TFW_LEVEL_S, 0, 1, 1000U, "FRT-026, FRT-004, FRT-005",
-      test_hooks_destructive },
+    { .id = "RTOS.020", .group = "RTOS", .title = "task create/suspend/resume/prio/delete",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 0,
+      .resets_mcu = 0, .timeout_ms = 1500U, .verifies = "FRT-020", .fn = test_tasks },
+    { .id = "RTOS.021", .group = "RTOS", .title = "queues, semaphores, events, notify, buffers",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 0,
+      .resets_mcu = 0, .timeout_ms = 3000U, .verifies = "FRT-021", .fn = test_kernel_objects },
+    { .id = "RTOS.021.FPU", .group = "RTOS", .title = "lazy FPU context across 3 tasks",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 0,
+      .resets_mcu = 0, .timeout_ms = 2000U, .verifies = "FRT-009",
+      .fn = test_fpu_lazy_stacking },
+    { .id = "RTOS.022", .group = "RTOS", .title = "software timer period accuracy",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 0,
+      .resets_mcu = 0, .timeout_ms = 2000U, .verifies = "FRT-022", .fn = test_timers },
+    { .id = "RTOS.023", .group = "RTOS", .title = "1 kHz tick vs TIM2 +-0.1 %",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 0,
+      .resets_mcu = 0, .timeout_ms = 2000U, .verifies = "FRT-023, FRT-002",
+      .fn = test_tick_rate },
+    { .id = "RTOS.024", .group = "RTOS", .title = "IRQ latency + context switch in cycles",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 0,
+      .resets_mcu = 0, .timeout_ms = 2000U, .verifies = "FRT-024", .fn = test_latencies },
+    { .id = "RTOS.025", .group = "RTOS", .title = "task list, runtime stats, stack headroom",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 0,
+      .resets_mcu = 0, .timeout_ms = 1000U, .verifies = "FRT-025",
+      .fn = test_tasklist_stats },
+    { .id = "RTOS.026", .group = "RTOS", .title = "overflow/malloc hooks (resets MCU)",
+      .level = TFW_LEVEL_S, .needs_operator = 0, .destructive = 1,
+      .resets_mcu = 1, .timeout_ms = 1000U, .verifies = "FRT-026, FRT-004, FRT-005",
+      .fn = test_hooks_destructive },
 };
 
 const size_t g_rtos_test_count = sizeof(g_rtos_tests) / sizeof(g_rtos_tests[0]);

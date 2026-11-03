@@ -325,10 +325,21 @@ static void cmd_list(int argc, char **argv)
 static void cmd_run(int argc, char **argv)
 {
     if (argc < 2) {
-        cli_line("usage: run <id|group|all> [--flags]");
+        cli_line("usage: run <id|group|all> [--level S,L,E] [--no-operator]\r\n"
+                 "                    [--destructive] [--repeat N] [--until-fail]");
         return;
     }
-    int n = hwval_test_run_sel(argv[1], "");
+    char flags[96];
+    flags[0] = '\0';
+    size_t used = 0U;
+    for (int i = 2; i < argc; i++) { /* join the flag tail (CLI-025/026) */
+        int n2 = (int)snprintf(flags + used, sizeof(flags) - used, "%s%s",
+                               (used > 0U) ? " " : "", argv[i]);
+        if (n2 <= 0) { break; }
+        used += (size_t)n2;
+        if (used >= sizeof(flags) - 1U) { break; }
+    }
+    int n = hwval_test_run_sel(argv[1], flags);
     cli_printf("%d test(s) executed, failures=%d\r\n", n, hwval_test_failed());
 }
 
