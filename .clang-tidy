@@ -18,6 +18,7 @@ Checks: >
   portability-*,
   -bugprone-reserved-identifier,
   -clang-diagnostic-*,
+  -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-type-member-init,
   -misc-no-recursion,
   -performance-weak-try-catch

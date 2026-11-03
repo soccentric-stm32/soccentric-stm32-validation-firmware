@@ -23,6 +23,7 @@ set(HWVAL_VERSION "0.1.0")
 set(CMAKE_SYSTEM_NAME     Generic)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY) # no OS to run a test exe in
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # compile_commands.json for clang-tidy (make lint)
 find_program(ARMCC arm-none-eabi-gcc REQUIRED)
 find_program(ARMOBJCOPY arm-none-eabi-objcopy REQUIRED)
 find_program(SIZE_TOOL arm-none-eabi-size REQUIRED)
@@ -237,7 +238,6 @@ target_link_options(hwval.elf PRIVATE
 # --- Static analysis (NFR-007) ---------------------------------------------
 # clang-tidy reuses the compile flags this very configure step produced, so
 # it must run from a configured build tree:  make lint / make lint-strict.
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_program(CLANG_TIDY clang-tidy REQUIRED)
 option(HWVAL_LINT_STRICT "Treat any clang-tidy finding as an error (lint-strict)" OFF)
 if(HWVAL_LINT_STRICT)

@@ -11,7 +11,8 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+SCRIPT_DIR="$ROOT/scripts"
 DEV="$SCRIPT_DIR/docker-dev.sh"
 
 if [[ "${1:-}" == "clean" ]]; then
@@ -22,3 +23,9 @@ fi
     -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE:-Release}"
 "$DEV" run cmake --build /work/build
 "$DEV" run arm-none-eabi-size /work/build/hwval.elf
+
+# Build-time gates: NFR-003/004 footprint (from the .map) and COV-001
+# (SRS 8 <-> test cases). COV-002 needs the SDK header via the container:
+python3 "$ROOT/scripts/check_footprint.py" build
+python3 "$ROOT/scripts/check_coverage.py" --no-cov2
+python3 "$ROOT/scripts/check_coverage.py" --no-cov1
