@@ -131,6 +131,13 @@ uint32_t hwval_results_crc(void);
 
 uint32_t crc32_buf(const uint8_t *p, size_t n);
 
+/* Seeded PRNG (NFR-006): deterministic fill for every test that needs
+ * pseudo-random data; the seed is printed in measured fields. */
+uint32_t hwval_prng_init(uint32_t seed);
+uint32_t hwval_prng_seed(void);
+uint32_t hwval_prng_next(void);
+void     hwval_prng_fill(void *p, size_t n);
+
 /* TFW-007: tests that reset the MCU arm this before NVIC_SystemReset and
  * the boot path reports the outcome. */
 void hwval_bootcheck_arm(uint32_t case_id_hash, tfw_result_t expect);

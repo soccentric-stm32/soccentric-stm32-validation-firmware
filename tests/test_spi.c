@@ -82,11 +82,9 @@ static tfw_result_t spi_loopback(struct tfw_out *o)
         fitted++;
         SPI_TypeDef *s = k_spis[i].s;
     
-        uint32_t seed = 0xC0DE0000U + (uint32_t)i;
-        int lcg = (int)seed;
+        (void)hwval_prng_init(0xC0DE0000U + (uint32_t)i);
         for (uint32_t j = 0U; j < sizeof(tx); j++) {
-            lcg = lcg * 1103515245 + 12345;
-            tx[j] = (uint8_t)(lcg >> 16);
+            tx[j] = (uint8_t)(hwval_prng_next() >> 16);
         }
 
         for (int m = 0; m < 4; m++) { /* all CPOL/CPHA */
@@ -121,8 +119,10 @@ static tfw_result_t spi_loopback(struct tfw_out *o)
         }
         s->CR1 &= ~SPI_CR1_SPE;
     }
-    hwval_meas(o, "%d/4 wired SPI loopback (4 modes + 16-bit), bad=%d",
-               (unsigned long)fitted, (unsigned long)bad);
+    hwval_meas(o, "%d/4 wired SPI loopback (4 modes + 16-bit), bad=%d "
+               "seed=0x%08lX",
+               (unsigned long)fitted, (unsigned long)bad,
+               (unsigned long)hwval_prng_seed());
     hwval_lim(o, "MOSI->MISO 1KB full-duplex at multiple prescalers, all "
                  "modes, 4-16 bit, MSB/LSB (SPI-001; SPI3/SPI6 have no "
                  "loopback wire -> register-only per SPI-007)");

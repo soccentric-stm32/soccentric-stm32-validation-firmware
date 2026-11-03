@@ -110,7 +110,10 @@ static tfw_result_t uart_loopback_all(struct tfw_out *o)
             if (rc != 0) { bad++; }
         }
     }
-    hwval_meas(o, "%d/%d instances wired, loopback bad=%d", fitted, UN, bad);
+    hwval_meas(o, "%d/%d instances wired, loopback bad=%d "
+               "seeds=0x%08lX..0x%08lX", fitted, UN, bad,
+               (unsigned long)0xC0DE0000U,
+               (unsigned long)(0xC0DE0000U + (unsigned long)UN - 1UL));
     hwval_lim(o, "1KB pseudo-random per instance per baud 9600/115200/921600 "
                  "(full sweep on bench; wired subset here) (UART-001)");
     if (fitted == 0) {

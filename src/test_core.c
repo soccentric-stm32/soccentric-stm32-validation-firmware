@@ -170,6 +170,40 @@ uint32_t hwval_results_crc(void)
                      sizeof(s_persist) - 2U * sizeof(uint32_t));
 }
 
+/* ------------------------------------------------- seeded PRNG (NFR-006) */
+/* Every test that needs pseudo-random data uses this LCG; the seed is
+ * printed in the result (NFR-006: the same result on every run on a
+ * known-good board). */
+static uint32_t s_prng_state;
+static uint32_t s_prng_seed;
+
+uint32_t hwval_prng_init(uint32_t seed)
+{
+    s_prng_seed = seed;
+    s_prng_state = (seed != 0U) ? seed : 0xC0DE0000U;
+    return s_prng_seed;
+}
+
+uint32_t hwval_prng_seed(void)
+{
+    return s_prng_seed;
+}
+
+uint32_t hwval_prng_next(void)
+{
+    s_prng_state = (s_prng_state * 1103515245U) + 12345U;
+    return s_prng_state >> 16U;
+}
+
+void hwval_prng_fill(void *p, size_t n)
+{
+    uint8_t *b = (uint8_t *)p;
+
+    while (n-- > 0U) {
+        *b++ = (uint8_t)(hwval_prng_next() >> 8U);
+    }
+}
+
 void hwval_results_clear(void)
 {
     (void)memset(&s_persist, 0, sizeof(s_persist));
