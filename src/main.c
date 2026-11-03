@@ -76,6 +76,7 @@ int main(void)
     hwval_test_register_spi();  /* SPI + I2S (section 8.19)                  */
     hwval_test_register_i2c();  /* I2C1-4 (section 8.22)                     */
     hwval_test_register_can();  /* CAN1-3 (section 8.23)                     */
+    hwval_test_register_mem();  /* SDMMC/QSPI/FMC (8.24/8.25/8.26)           */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */
