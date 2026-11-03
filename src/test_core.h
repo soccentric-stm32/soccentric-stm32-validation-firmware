@@ -65,6 +65,7 @@ void hwval_test_register_dev(void);
 void hwval_test_register_cm7(void);
 void hwval_test_register_cache_mpu(void);
 void hwval_test_register_ram(void);
+void hwval_test_register_flash(void);
 
 size_t hwval_test_count(void);
 const struct tfw_case *hwval_test_at(size_t index);
@@ -106,6 +107,8 @@ const hwval_test_result_t *hwval_test_result_of(size_t index);
  * boot unless `results clear` was the last command. */
 void hwval_results_clear(void);
 uint32_t hwval_results_crc(void);
+
+uint32_t crc32_buf(const uint8_t *p, size_t n);
 
 /* TFW-007: tests that reset the MCU arm this before NVIC_SystemReset and
  * the boot path reports the outcome. */

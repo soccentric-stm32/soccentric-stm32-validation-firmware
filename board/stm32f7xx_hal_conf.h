@@ -37,6 +37,7 @@
 #define HAL_FLASH_MODULE_ENABLED
 #define HAL_DMA_MODULE_ENABLED
 #define HAL_IWDG_MODULE_ENABLED
+#define HAL_CRC_MODULE_ENABLED
 
 #include "stm32f7xx_hal_rcc.h"
 #include "stm32f7xx_hal_gpio.h"
@@ -47,6 +48,7 @@
 #include "stm32f7xx_hal_flash_ex.h"
 #include "stm32f7xx_hal_dma.h"
 #include "stm32f7xx_hal_iwdg.h"
+#include "stm32f7xx_hal_crc.h"
 
 /* Syscalls use the fault.c reporting path; HAL errors are not fatal by
  * default, tests assert explicitly. */

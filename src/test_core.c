@@ -150,7 +150,7 @@ void hwval_lim(struct tfw_out *o, const char *fmt, ...)
 }
 
 /* ---------------------------------------------------- CRC32 (TFW-022) -- */
-static uint32_t crc32_buf(const uint8_t *p, size_t n)
+uint32_t crc32_buf(const uint8_t *p, size_t n)
 {
     uint32_t crc = 0xFFFFFFFFU;
 

@@ -99,7 +99,9 @@ set(HAL_SOURCES
     "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_flash.c"
     "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_flash_ex.c"
     "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_dma.c"
-    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_iwdg.c")
+    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_iwdg.c"
+    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_crc.c"
+    "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Src/stm32f7xx_hal_crc_ex.c")
 
 set(PROJECT_SOURCES
     src/main.c
@@ -121,7 +123,9 @@ set(PROJECT_SOURCES
     tests/test_dev.c
     tests/test_core_m7.c
     tests/test_cache_mpu.c
-    tests/test_ram.c)
+    tests/test_ram.c
+    tests/test_flash.c)
+list(APPEND PROJECT_SOURCES src/flash_ops.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
