@@ -104,7 +104,10 @@ int hwval_harness_count(void) { return (int)HWVAL_WIRE_TABLE_N; }
 
 int hwval_harness_fitted(int index)
 {
-    return (int)((hwval_harness_detected() >> index) & 1U);
+    if ((index < 0) || (index >= 32)) {
+        return 0; /* wires 32.. do not fit the uint32 mask (CL: extended) */
+    }
+    return (int)((hwval_harness_detected() >> index) & 1UL);
 }
 
 void hwval_harness_report(void)

@@ -290,14 +290,16 @@ static void cmd_info(int argc, char **argv)
                  (unsigned long)(*(const uint32_t *)0x40023C14U),
                  (unsigned long)(*(const uint32_t *)0x40023C18U));
     hwval_clock_get_tree(&tree);
-    (void)printf("sysclk=%lu hclk=%lu pclk1=%lu pclk2=%lu\\r\\n",
-                 tree.sysclk_hz, tree.hclk_hz, tree.pclk1_hz, tree.pclk2_hz);
-    (void)printf("apb1_tim=%lu apb2_tim=%lu pllq=%lu\\r\\n",
-                 tree.apb1_tim_hz, tree.apb2_tim_hz, tree.pllq_hz);
+    (void)printf("sysclk=%lu hclk=%lu pclk1=%lu pclk2=%lu\r\n",
+                 (unsigned long)tree.sysclk_hz, (unsigned long)tree.hclk_hz,
+                 (unsigned long)tree.pclk1_hz, (unsigned long)tree.pclk2_hz);
+    (void)printf("apb1_tim=%lu apb2_tim=%lu pllq=%lu\r\n",
+                 (unsigned long)tree.apb1_tim_hz, (unsigned long)tree.apb2_tim_hz,
+                 (unsigned long)tree.pllq_hz);
     (void)printf("reset cause: %s\r\n", hwval_reset_cause_name(
                  hwval_reset_cause_flags()));
     (void)printf("uptime=%lu s | baud=%lu | %s mode\r\n",
-                 (unsigned long)(HAL_GetTick() / 1000U),
+                 (unsigned long)(HAL_GetTick() / 1000UL),
                  (unsigned long)s_baud, hwval_mode_name(g_set.mode));
 }
 

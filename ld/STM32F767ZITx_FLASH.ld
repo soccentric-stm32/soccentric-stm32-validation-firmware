@@ -137,6 +137,22 @@ SECTIONS
         __noncacheable_end = .;
     } > NCACHE
 
+    /* NFR-004: the bulk DMA-fed test buffers (DMA streams, DMA2D, ADC)
+     * are placed here so that, after the move, >= 64 KB of DTCM stays
+     * free for the destructive RAM tests. HWVAL_SRAM1 in
+     * board/hwval_sections.h is the matching section attribute. MPU
+     * region 3 (src/mpu_setup.c) marks the span non-cacheable.
+     * Buffers are written before they are read and zeroed at boot in
+     * main.c, so NOLOAD is safe. */
+    .sram1 (NOLOAD) :
+    {
+        . = ALIGN(32);
+        __sram1_start = .;
+        *(.sram1 .sram1.*)
+        . = ALIGN(32);
+        __sram1_end = .;
+    } > SRAM1
+
     ._user_heap_stack (NOLOAD) :
     {
         . = ALIGN(8);
@@ -156,3 +172,7 @@ ASSERT(__flash_image_end <= 0x081C0000,
        "GEN-006: image overlaps flash sector 11 (reserved, ASM-004)")
 ASSERT(_edata - _sdata + (_ebss - _sbss) + _Min_Stack_Size <= LENGTH(DTCMRAM),
        "DTCM overflow")
+ASSERT(__sram1_end <= ORIGIN(NOINIT),
+       ".sram1 spills into the reserved NOINIT tail of SRAM1")
+ASSERT((__sram1_start & 0x1FFFF) == 0,
+       ".sram1 base must stay 128 KB aligned for MPU region 3")

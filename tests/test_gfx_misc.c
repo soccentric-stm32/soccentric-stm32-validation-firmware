@@ -16,6 +16,7 @@
 #include "hwval_board.h"
 #include "test_core.h"
 #include "harness.h"
+#include "hwval_sections.h"
 
 /* -------------------------------------------------------- LTDC-001/002 - */
 static tfw_result_t ltdc_cfg(struct tfw_out *o)
@@ -70,7 +71,7 @@ static tfw_result_t ltdc_cfg(struct tfw_out *o)
 }
 
 /* -------------------------------------------------------- DMA2D-001..003 */
-static uint32_t dma2d_buf[8192] __attribute__((aligned(32)));
+static uint32_t dma2d_buf[8192] HWVAL_SRAM1;
 
 static tfw_result_t dma2d_blit(struct tfw_out *o)
 {

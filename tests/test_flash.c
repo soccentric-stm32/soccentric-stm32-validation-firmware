@@ -73,7 +73,7 @@ static tfw_result_t fls_alias_paths(struct tfw_out *o)
     int bad = 0;
 
     for (uint32_t w = 0U; w < bytes / 4U; w += 16U) {
-        if (axi[w] != itc[w]) { bad++; }
+        /* cppcheck-suppress nullPointer ; ITCM flash alias, not NULL */ if (axi[w] != itc[w]) { bad++; }
     }
     for (uint32_t a = 0x0801C0000U - 0x08000000U;
          a < 0x08200000U - 0x08000000U; a += 0x10000U) {

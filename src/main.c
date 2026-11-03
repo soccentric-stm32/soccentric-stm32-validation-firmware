@@ -25,6 +25,11 @@
 #include "rtos.h"
 #include "test_core.h"
 
+/* NFR-004: .sram1 is NOLOAD; main.c zeroes it after the MPU is up so the
+ * static test buffers get their C zero-init state (startup zeroes .bss). */
+extern uint32_t __sram1_start;
+extern uint32_t __sram1_end;
+
 static void report_previous_fault(void)
 {
     const hwval_fault_record_t *r = hwval_fault_record();
@@ -43,6 +48,11 @@ static void report_previous_fault(void)
 int main(void)
 {
     hwval_mpu_setup();          /* GEN-007: non-cacheable DMA region, OTP RO */
+    /* NFR-004: zero-init the .sram1 buffers (NOLOAD; startup zeroes .bss)
+     * - span ends are 32-aligned, so an equality loop is exact. */
+    for (uint32_t *p = &__sram1_start; p != &__sram1_end; p++) {
+        *p = 0U;
+    }
     HAL_Init();                 /* HAL time base on TIM6 (GEN-012)           */
     hwval_clock_init();         /* GEN-004: 216 MHz, scale 1, OD, 7 WS       */
     hwval_uart3_init();         /* VCP console (USART3, section 6 builds on) */

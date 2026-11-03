@@ -120,7 +120,7 @@ static tfw_result_t core_div0(struct tfw_out *o)
     uint32_t q;
 
     fault_arming();
-    hwval_fault_recover_pc = (void *)&&recover;
+    /* cppcheck-suppress assignBoolToPointer */ hwval_fault_recover_pc = (void *)&&recover;
     hwval_fault_recover = 1;
     __asm volatile ("udiv %0, %1, %2" : "=r"(q) : "r"(1U), "r"(0U));
     hwval_fail(o, "udiv 1/0 did not fault");
@@ -155,7 +155,7 @@ static tfw_result_t core_unaligned(struct tfw_out *o)
     fault_arming();
 
     SCB->CCR |= SCB_CCR_UNALIGN_TRP_Msk;
-    hwval_fault_recover_pc = (void *)&&trapped;
+    /* cppcheck-suppress assignBoolToPointer */ hwval_fault_recover_pc = (void *)&&trapped;
     hwval_fault_recover = 1;
     v = *mis;
     (void)v;                 /* only reached if the trap failed */
@@ -192,7 +192,7 @@ static tfw_result_t core_busfault(struct tfw_out *o)
     tfw_result_t res = TFW_FAIL;
 
     fault_arming();
-    hwval_fault_recover_pc = (void *)&&recover;
+    /* cppcheck-suppress assignBoolToPointer */ hwval_fault_recover_pc = (void *)&&recover;
     hwval_fault_recover = 1;
     s_bus_probe = *(volatile const uint32_t *)0x24F00000U; /* reserved */
     hwval_fail(o, "reserved read did not busfault");
@@ -222,7 +222,7 @@ static tfw_result_t core_undefinstr(struct tfw_out *o)
     tfw_result_t res = TFW_FAIL;
 
     fault_arming();
-    hwval_fault_recover_pc = (void *)&&recover;
+    /* cppcheck-suppress assignBoolToPointer */ hwval_fault_recover_pc = (void *)&&recover;
     hwval_fault_recover = 1;
     __asm volatile (".word 0xDE01\n"); /* UDF #1 */
     hwval_fail(o, "UDF did not fault");

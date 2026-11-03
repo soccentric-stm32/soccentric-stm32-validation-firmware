@@ -222,7 +222,7 @@ static tfw_result_t mpu_ro_xn_noaccess(struct tfw_out *o)
 
     /* RO: privileged read-only -> write must fault (MemManage) */
     mpu_program_region(MPU_REGION_PRIV_RO, 0U);
-    MPU_PROBE_ARM(rof);
+    /* cppcheck-suppress assignBoolToPointer */ MPU_PROBE_ARM(rof);
     *(volatile uint32_t *)mpu_scratch = 1U;
     MPU_PROBE_OK(rof);
     if (mpu_faulted(&exc, &probe) == 0) {
@@ -239,7 +239,7 @@ static tfw_result_t mpu_ro_xn_noaccess(struct tfw_out *o)
     r.AccessPermission = MPU_REGION_FULL_ACCESS;
     r.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
     HAL_MPU_ConfigRegion(&r);
-    MPU_PROBE_ARM(xnf);
+    /* cppcheck-suppress assignBoolToPointer */ MPU_PROBE_ARM(xnf);
     { /* volatile fn-ptr so the call stays indirect (XN must fault) */
       void (*volatile xnf_ptr)(void) =
           (void (*)(void))(uintptr_t)mpu_scratch;
@@ -252,7 +252,7 @@ static tfw_result_t mpu_ro_xn_noaccess(struct tfw_out *o)
 
     /* no-access -> read must fault */
     mpu_program_region(MPU_REGION_NO_ACCESS, 0U);
-    MPU_PROBE_ARM(naf);
+    /* cppcheck-suppress assignBoolToPointer */ MPU_PROBE_ARM(naf);
     { volatile uint32_t v = *(volatile uint32_t *)mpu_scratch; (void)v; }
     MPU_PROBE_OK(naf);
     if (mpu_faulted(&exc, &probe) == 0) {
@@ -282,7 +282,7 @@ static tfw_result_t mpu_subregion_privdef(struct tfw_out *o)
 
     /* 256-byte region, SR0+SR1 disabled (first 128 bytes allowed) */
     mpu_program_region(MPU_REGION_PRIV_RO, 0x03U);
-    MPU_PROBE_ARM(sub_ok);
+    /* cppcheck-suppress assignBoolToPointer */ MPU_PROBE_ARM(sub_ok);
     *(volatile uint32_t *)(mpu_scratch + 192U) = 1U; /* SR2..7 = RO -> fault */
     MPU_PROBE_OK(sub_ok);
     /* the write to a *disabled* (allowed? no: SR0/1 disabled means those
@@ -326,7 +326,7 @@ static tfw_result_t mpu_type_unpriv(struct tfw_out *o)
      * so the recovery path restores CONTROL afterwards. */
     __set_CONTROL(__get_CONTROL() | CONTROL_nPRIV_Msk);
     __ISB();
-    MPU_PROBE_ARM(unpf);
+    /* cppcheck-suppress assignBoolToPointer */ MPU_PROBE_ARM(unpf);
     *(volatile uint32_t *)HWVAL_SECTOR11_BASE = 0U;
     MPU_PROBE_OK(unpf);
     __set_CONTROL(__get_CONTROL() & ~CONTROL_nPRIV_Msk);

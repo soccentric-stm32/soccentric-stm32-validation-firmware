@@ -18,6 +18,7 @@
 #include "test_core.h"
 #include "harness.h"
 #include "fault.h"
+#include "hwval_sections.h"
 
 #define ADC1_BASE_A 0x40012000U
 #define ADC2_BASE_A 0x40012100U
@@ -401,7 +402,7 @@ static tfw_result_t adc_watchdog(struct tfw_out *o)
 /* ------------------------------------------------- ADC-008/010/011/012 -- */
 static tfw_result_t adc_dma_noise_rate(struct tfw_out *o)
 {
-    static uint16_t buf[512] __attribute__((aligned(32)));
+    static uint16_t buf[512] HWVAL_SRAM1;
     int rc;
     volatile uint32_t convs = 0U;
     uint32_t t0, ms;

@@ -47,7 +47,7 @@ static tfw_result_t safe_otp_ro(struct tfw_out *o)
     /* MPU region 1 covers OTP as privilege+user read-only: a write must
      * fault; the recovery path returns here. */
     s_mpu_probe = 0U;
-    hwval_fault_recover_pc = (void *)&&otp_ro_ok;
+    /* cppcheck-suppress assignBoolToPointer */ hwval_fault_recover_pc = (void *)&&otp_ro_ok;
     hwval_fault_recover = 1;
     *(volatile uint32_t *)HWVAL_OTP_BASE = 0U; /* expect MemManage */
     hwval_fault_recover = 0;
@@ -117,7 +117,12 @@ static tfw_result_t safe_destructive_gate(struct tfw_out *o)
     for (size_t i = 0; i < hwval_test_count(); i++) {
         if (hwval_test_at(i) == target) {
             r = hwval_test_result_of(i);
+            break;
         }
+    }
+    if ((r == NULL) || (target == NULL)) {
+        hwval_fail(o, "FLS.006 not registered");
+        return TFW_FAIL;
     }
 
     hwval_meas(o, "run(FLS.006) executed=%d result=%s rc=%s",

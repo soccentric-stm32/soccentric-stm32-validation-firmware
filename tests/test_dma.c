@@ -14,6 +14,7 @@
 #include "hwval_board.h"
 #include "test_core.h"
 #include "fault.h"
+#include "hwval_sections.h"
 
 extern uint8_t hwval_itcm_base[]; /* linker symbol */
 
@@ -58,8 +59,8 @@ static int dma_xfer(DMA_Stream_TypeDef *d, const void *src, void *dst,
 /* ------------------------------------------------- DMA-001 (8 streams) -- */
 static tfw_result_t dma_m2m_streams(struct tfw_out *o)
 {
-    static uint32_t src[64] __attribute__((aligned(32)));
-    static uint32_t dst[8][64] __attribute__((aligned(32)));
+    static uint32_t src[64] HWVAL_SRAM1;
+    static uint32_t dst[8][64] HWVAL_SRAM1;
     DMA_Stream_TypeDef *s[8] = {
         DMA2_Stream0, DMA2_Stream1, DMA2_Stream2, DMA2_Stream3,
         DMA2_Stream4, DMA2_Stream5, DMA2_Stream6, DMA2_Stream7,
@@ -227,7 +228,7 @@ static tfw_result_t dma_circular_dbm(struct tfw_out *o)
 /* ------------------------------------------------- DMA-005 (memories) -- */
 static tfw_result_t dma_memory_map(struct tfw_out *o)
 {
-    static uint32_t sram1_dst[8] __attribute__((aligned(16)));
+    static uint32_t sram1_dst[8] HWVAL_SRAM1; /* genuinely in SRAM1 */
     static __attribute__((section(".noncacheable"), aligned(16)))
         uint32_t sram2_dst[8];
     static __attribute__((aligned(16))) uint32_t bkp_dst[4];
@@ -284,8 +285,10 @@ static tfw_result_t dma_memory_map(struct tfw_out *o)
 
 static tfw_result_t dma_throughput(struct tfw_out *o)
 {
-    static uint32_t src[2048] __attribute__((aligned(32)));
-    static uint32_t dst[2048] __attribute__((aligned(32)));
+    static uint32_t src[2048] HWVAL_SRAM1;
+    static uint32_t dst[2048] HWVAL_SRAM1;
+    /* the DTCM leg stays in DTCM: DMA2 reads DTCM through the CPU AHBS
+     * slave bus (RM0410 2.1.6) - slower than the AHB-path SRAM1 leg */
     static uint32_t dtcm_src[512] __attribute__((aligned(32)));
     int64_t cyc_s1s1, cyc_dtcm;
     uint32_t bytes = sizeof(src);
@@ -320,8 +323,10 @@ static tfw_result_t dma_throughput(struct tfw_out *o)
 /* ------------------------------------------------- DMA-007 (arbitration) */
 static tfw_result_t dma_arbitration(struct tfw_out *o)
 {
-    static uint32_t srcA[1024], srcB[1024];
-    static uint32_t dstA[1024], dstB[1024];
+    static uint32_t srcA[1024] HWVAL_SRAM1;
+    static uint32_t srcB[1024] HWVAL_SRAM1;
+    static uint32_t dstA[1024] HWVAL_SRAM1;
+    static uint32_t dstB[1024] HWVAL_SRAM1;
     uint32_t tA_done = 0, tB_done = 0, t0;
 
     dma_clk();

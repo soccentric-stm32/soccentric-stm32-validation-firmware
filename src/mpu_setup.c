@@ -10,11 +10,14 @@
 
 #include "stm32f7xx_hal.h"
 #include "hwval_board.h"
+#include "hwval_sections.h"
 #include "mpu_setup.h"
 
-/* Symbol pair exported by the linker script. */
+/* Symbols exported by the linker script. */
 extern uint32_t __noncacheable_start;
 extern uint32_t __noncacheable_end;
+extern uint32_t __sram1_start;
+extern uint32_t __sram1_end;
 
 void hwval_mpu_setup(void)
 {
@@ -28,6 +31,23 @@ void hwval_mpu_setup(void)
     r.Number             = MPU_REGION_NUMBER0;
     r.BaseAddress        = (uint32_t)&__noncacheable_start;
     r.Size               = MPU_REGION_SIZE_8KB;
+    r.Enable             = MPU_REGION_ENABLE;
+    r.AccessPermission   = MPU_REGION_FULL_ACCESS;
+    r.IsBufferable       = MPU_ACCESS_NOT_BUFFERABLE;
+    r.IsCacheable        = MPU_ACCESS_NOT_CACHEABLE;
+    r.IsShareable        = MPU_ACCESS_SHAREABLE;
+    r.SubRegionDisable = 0x00U;
+    r.TypeExtField       = MPU_TEX_LEVEL1;
+    r.DisableExec        = MPU_INSTRUCTION_ACCESS_DISABLE;
+    HAL_MPU_ConfigRegion(&r);
+
+    /* Region 3: .sram1 at the SRAM1 base (128 KB) — NFR-004 put the bulk
+     * DMA-fed test buffers here (out of DTCM); the region is non-cacheable
+     * so CPU fills are directly visible to the DMA masters (same pattern
+     * as region 0, GEN-007, and to be kept clear of REGION7 test use). */
+    r.Number             = MPU_REGION_NUMBER3;
+    r.BaseAddress        = (uint32_t)&__sram1_start;
+    r.Size               = MPU_REGION_SIZE_128KB;
     r.Enable             = MPU_REGION_ENABLE;
     r.AccessPermission   = MPU_REGION_FULL_ACCESS;
     r.IsBufferable       = MPU_ACCESS_NOT_BUFFERABLE;
