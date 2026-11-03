@@ -461,6 +461,17 @@ void hwval_bootcheck_evaluate(void)
     uint32_t hash   = RTC->BKP1R;
     tfw_result_t got = (tfw_result_t)RTC->BKP2R;
 
+    if (hash == 0x5B01U) { /* PWR.007: standby flag after wake */
+        got = ((PWR->CSR1 & PWR_CSR1_SBF_Msk) != 0U) ? TFW_PASS : TFW_FAIL;
+        (void)snprintf(line, sizeof(line),
+                       "BOOTCHECK PWR.007 SBF=%lu -> %s\r\n",
+                       (unsigned long)((PWR->CSR1 & PWR_CSR1_SBF_Msk) != 0U),
+                       res_name(got));
+        RTC->BKP0R = 0U; RTC->BKP1R = 0U; RTC->BKP2R = 0U;
+        bkp_lock();
+        hwval_uart3_write(line, 0U);
+        return;
+    }
     if (hash == 0x5A00U) { /* RAM.009: backup-SRAM retention check */
         volatile const uint32_t *b = (const uint32_t *)0x40024000U;
         got = ((b[0] == RTC->BKP3R) && (b[1] == RTC->BKP4R)) ? TFW_PASS
