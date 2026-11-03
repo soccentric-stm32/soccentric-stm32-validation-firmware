@@ -339,6 +339,17 @@ static void cmd_run(int argc, char **argv)
         used += (size_t)n2;
         if (used >= sizeof(flags) - 1U) { break; }
     }
+    /* SAFE-005: ask before destructive runs in interactive mode */
+    if ((strstr(flags, "--destructive") != NULL) &&
+        (g_set.mode == HWVAL_MODE_INTERACTIVE)) {
+        cli_printf("DESTRUCTIVE run requested: flash sector 11, backup "
+                   "SRAM, backup regs, RTC cfg, resets\r\n");
+        int yn = hwval_cli_ask_yn("confirm destructive run", 60U);
+        if (yn <= 0) {
+            cli_line("aborted (NOT confirmed)");
+            return;
+        }
+    }
     int n = hwval_test_run_sel(argv[1], flags);
     cli_printf("%d test(s) executed, failures=%d\r\n", n, hwval_test_failed());
 }
