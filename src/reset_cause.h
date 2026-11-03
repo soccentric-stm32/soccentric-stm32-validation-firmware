@@ -22,6 +22,7 @@ typedef enum {
 } hwval_reset_cause_t;
 
 uint32_t hwval_reset_cause_flags(void);
+uint32_t hwval_reset_flags_snapshot(void);
 const char *hwval_reset_cause_name(uint32_t cause);
 
 /* GEN-010: print the causes on boot, then clear the flags. */

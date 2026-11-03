@@ -11,6 +11,10 @@
 #include "reset_cause.h"
 #include "uart3.h"
 
+static uint32_t s_flags_at_boot; /* snapshot for TFW-007 post-reset checks */
+
+uint32_t hwval_reset_flags_snapshot(void) { return s_flags_at_boot; }
+
 static const struct {
     uint32_t    flag;
     const char *name;
@@ -59,6 +63,13 @@ const char *hwval_reset_cause_name(uint32_t cause)
 void hwval_reset_cause_report(void)
 {
     uint32_t flags = RCC->CSR; /* snapshot before clearing */
+
+    s_flags_at_boot = flags;
+    /* mirror into RTC BKPR5 so bootcheck can see the causes that were set
+     * even after the flags are cleared (TFW-007) */
+    RTC->WPR = 0xCAU; RTC->WPR = 0x53U;
+    RTC->BKP5R = flags;
+    RTC->WPR = 0xFFU;
 
     char line[128];
     int n = snprintf(line, sizeof(line), "reset cause: %s (CSR %08lX)\r\n",

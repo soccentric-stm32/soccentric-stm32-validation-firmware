@@ -128,6 +128,7 @@ set(PROJECT_SOURCES
 list(APPEND PROJECT_SOURCES src/flash_ops.c)
 list(APPEND PROJECT_SOURCES   tests/test_clk.c)
 list(APPEND PROJECT_SOURCES   tests/test_pwr.c)
+list(APPEND PROJECT_SOURCES   tests/test_rst_wdg.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"

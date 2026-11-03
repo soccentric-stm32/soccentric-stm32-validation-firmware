@@ -461,6 +461,73 @@ void hwval_bootcheck_evaluate(void)
     uint32_t hash   = RTC->BKP1R;
     tfw_result_t got = (tfw_result_t)RTC->BKP2R;
 
+    if (hash == 0x5C01U) { /* RST.002: software reset flag */
+        got = ((RTC->BKP5R & RCC_CSR_SFTRSTF_Msk) != 0U) ? TFW_PASS
+                                                         : TFW_FAIL;
+        (void)snprintf(line, sizeof(line),
+                       "BOOTCHECK RST.002 SFTRSTF=%lu -> %s\r\n",
+                       (unsigned long)((RTC->BKP5R &
+                         RCC_CSR_SFTRSTF_Msk) != 0U), res_name(got));
+        RTC->BKP0R = 0U; RTC->BKP1R = 0U; RTC->BKP2R = 0U;
+        bkp_lock();
+        hwval_uart3_write(line, 0U);
+        return;
+    }
+    if (hash == 0x5D01U) { /* WDG.001: IWDG expiry timing vs RTC */
+        uint32_t armed_tr = RTC->BKP3R;
+        uint32_t expect_s = RTC->BKP4R;
+        uint32_t flags    = RTC->BKP5R;
+        uint32_t now      = RTC->TR;
+        /* BCD seconds/min/hours delta over one day wrap */
+        uint32_t as = ((now  >> 16U) & 3U) * 10U + ((now >> 20U) & 3U);
+        uint32_t bs = ((armed_tr >> 16U) & 3U) * 10U + ((armed_tr >> 20U) & 3U);
+        uint32_t am = (((now  >> 8U) & 7U) * 10U + ((now >> 12U) & 7U)) * 60U;
+        uint32_t bm = (((armed_tr >> 8U) & 7U) * 10U +
+                       ((armed_tr >> 12U) & 7U)) * 60U;
+        uint32_t now_s = as + am;
+        uint32_t arm_s = bs + bm;
+        uint32_t delta = (now_s >= arm_s) ? (now_s - arm_s)
+                          : (86400U - arm_s + now_s);
+        got = ((flags & RCC_CSR_IWDGRSTF_Msk) != 0U) &&
+              (((delta + (expect_s / 2U)) >= expect_s) ||
+               ((delta - (expect_s / 2U)) <= expect_s)) ? TFW_PASS : TFW_FAIL;
+        (void)snprintf(line, sizeof(line),
+                       "BOOTCHECK WDG.001 iwdgrst=%lu elapsed=%lu s "
+                       "(expect %lu) -> %s\r\n",
+                       (unsigned long)((flags & RCC_CSR_IWDGRSTF_Msk) != 0U),
+                       (unsigned long)delta, (unsigned long)expect_s,
+                       res_name(got));
+        RTC->BKP0R = 0U; RTC->BKP1R = 0U; RTC->BKP2R = 0U;
+        RTC->BKP3R = 0U; RTC->BKP4R = 0U;
+        bkp_lock();
+        hwval_uart3_write(line, 0U);
+        return;
+    }
+    if (hash == 0x5D02U) { /* WDG.002: IWDG window violation */
+        got = ((RTC->BKP5R & RCC_CSR_IWDGRSTF_Msk) != 0U) ? TFW_PASS
+                                                         : TFW_FAIL;
+        (void)snprintf(line, sizeof(line),
+                       "BOOTCHECK WDG.002 iwdgrst=%lu (window violation) -> "
+                       "%s\r\n",
+                       (unsigned long)((RTC->BKP5R &
+                         RCC_CSR_IWDGRSTF_Msk) != 0U), res_name(got));
+        RTC->BKP0R = 0U; RTC->BKP1R = 0U; RTC->BKP2R = 0U;
+        bkp_lock();
+        hwval_uart3_write(line, 0U);
+        return;
+    }
+    if (hash == 0x5D03U) { /* WDG.003: WWDG out-of-window reset */
+        got = ((RTC->BKP5R & RCC_CSR_WWDGRSTF_Msk) != 0U) ? TFW_PASS
+                                                         : TFW_FAIL;
+        (void)snprintf(line, sizeof(line),
+                       "BOOTCHECK WDG.003 wwdgrst=%lu -> %s\r\n",
+                       (unsigned long)((RTC->BKP5R &
+                         RCC_CSR_WWDGRSTF_Msk) != 0U), res_name(got));
+        RTC->BKP0R = 0U; RTC->BKP1R = 0U; RTC->BKP2R = 0U;
+        bkp_lock();
+        hwval_uart3_write(line, 0U);
+        return;
+    }
     if (hash == 0x5B01U) { /* PWR.007: standby flag after wake */
         got = ((PWR->CSR1 & PWR_CSR1_SBF_Msk) != 0U) ? TFW_PASS : TFW_FAIL;
         (void)snprintf(line, sizeof(line),
