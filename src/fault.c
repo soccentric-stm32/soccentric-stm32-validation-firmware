@@ -23,6 +23,14 @@ static volatile hwval_fault_action_t s_action = HWVAL_FAULT_HALT;
 volatile int g_assert_line;
 volatile const char *g_assert_file;
 
+/* CORE-003..006/MPU-002: tests arm this to catch an expected fault: the
+ * stacked PC is redirected to hwval_fault_recover_pc and the exception
+ * returns instead of halting. */
+volatile int          hwval_fault_recover;
+volatile void        *hwval_fault_recover_pc;   /* &&label inside test   */
+volatile uint32_t     hwval_fault_last_exc;     /* 3 hard, 4 mem, 5 bus, 6 usage */
+volatile uint32_t     hwval_fault_cfsr_snap;
+
 #define FAULT_RECORD_MAGIC 0x4856464CU /* "HVFL" */
 __attribute__((section(".noinit")))
 static hwval_fault_record_t s_record; /* survives the handler's reset */
@@ -103,7 +111,8 @@ __attribute__((naked)) void HardFault_Handler(void)
         "mrsne r0, psp         \n"
         "mov   r1, lr          \n"
         "mov   r2, #3          \n"
-        "b     hwval_fault_enter \n");
+        "bl    hwval_fault_enter \n"
+        "bx    r0                \n");
 }
 
 __attribute__((naked)) void MemManage_Handler(void)
@@ -115,7 +124,8 @@ __attribute__((naked)) void MemManage_Handler(void)
         "mrsne r0, psp         \n"
         "mov   r1, lr          \n"
         "mov   r2, #4          \n"
-        "b     hwval_fault_enter \n");
+        "bl    hwval_fault_enter \n"
+        "bx    r0                \n");
 }
 
 __attribute__((naked)) void BusFault_Handler(void)
@@ -127,7 +137,8 @@ __attribute__((naked)) void BusFault_Handler(void)
         "mrsne r0, psp         \n"
         "mov   r1, lr          \n"
         "mov   r2, #5          \n"
-        "b     hwval_fault_enter \n");
+        "bl    hwval_fault_enter \n"
+        "bx    r0                \n");
 }
 
 __attribute__((naked)) void UsageFault_Handler(void)
@@ -139,32 +150,46 @@ __attribute__((naked)) void UsageFault_Handler(void)
         "mrsne r0, psp         \n"
         "mov   r1, lr          \n"
         "mov   r2, #6          \n"
-        "b     hwval_fault_enter \n");
+        "bl    hwval_fault_enter \n"
+        "bx    r0                \n");
 }
 
 /* NMI: used by CORE-007 (software-pended NMI) and CLK-011 (CSS path).
  * A return from NMI is legal, so record, report, return. */
+volatile uint32_t hwval_nmi_count;
+
 void NMI_Handler(void)
 {
-    hwval_fault_frame_t dummy = {0};
-    static uint32_t nmi_count;
-
-    nmi_count++;
-    if (nmi_count <= 4U) {
-        (void)dummy;
-        /* Report minimally; the frame is not available here. */
+    hwval_nmi_count++;
+    if (hwval_nmi_count <= 4U) {
+        /* Report minimally; the frame is not available in NMI here. */
         hwval_uart3_puts("NMI (NMIPENDSET/CSS observer)");
     }
 }
 
 /* Entry point used by the naked wrappers above. */
-void hwval_fault_enter(const hwval_fault_frame_t *frame, uint32_t lr,
-                       uint32_t exc);
+uint32_t hwval_fault_enter(const hwval_fault_frame_t *frame, uint32_t lr,
+                           uint32_t exc);
 
-void hwval_fault_enter(const hwval_fault_frame_t *frame, uint32_t lr,
-                       uint32_t exc)
+/* Returns the EXC_RETURN value (r0) so the naked wrapper can do 'bx r0';
+ * on the recovery path the stacked PC was redirected and the exception
+ * simply returns to the test. */
+uint32_t hwval_fault_enter(const hwval_fault_frame_t *frame, uint32_t lr,
+                           uint32_t exc)
 {
+    if (hwval_fault_recover != 0) {
+        /* Expected fault under test: redirect the stacked PC to the
+         * recovery point and return; exception return unwinds cleanly
+         * ([PM0253] B1.5.8/9: stacked frame edit + EXC_RETURN). */
+        hwval_fault_last_exc  = exc;
+        hwval_fault_cfsr_snap = SCB->CFSR;
+        ((hwval_fault_frame_t *)(uintptr_t)frame)->pc =
+            (uint32_t)(uintptr_t)hwval_fault_recover_pc;
+        hwval_fault_recover = 0;
+        return lr;
+    }
     fault_common(exc, frame, lr);
+    return lr;
 }
 
 void hwval_fault_assert(const char *file, int line)

@@ -44,6 +44,15 @@ typedef enum { HWVAL_FAULT_HALT = 0, HWVAL_FAULT_RESET = 1 } hwval_fault_action_
 void hwval_fault_set_action(hwval_fault_action_t action);
 hwval_fault_action_t hwval_fault_get_action(void);
 
+/* Fault-recovery for CORE/MPU tests: arm before triggering an expected
+ * fault; the handler redirects the stacked PC to the label and returns. */
+extern volatile int      hwval_fault_recover;
+extern volatile void    *hwval_fault_recover_pc;
+extern volatile uint32_t hwval_fault_last_exc;   /* 3 hard 4 mem 5 bus 6 usage */
+extern volatile uint32_t hwval_fault_cfsr_snap;
+extern volatile int      g_assert_line;
+extern volatile const char *g_assert_file;
+
 /* configASSERT plumbing (FRT-003): print file/line on the console. */
 void hwval_fault_assert(const char *file, int line);
 

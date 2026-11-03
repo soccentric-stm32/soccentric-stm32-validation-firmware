@@ -31,7 +31,12 @@ MEMORY
     SRAM2   (rwx) : ORIGIN = 0x2007C000, LENGTH =   8K
     /* .noncacheable: MPU non-cacheable block for DMA buffers (GEN-007). */
     NCACHE  (rw)  : ORIGIN = 0x2007E000, LENGTH =   8K
+    /* ITCM RAM: core-only, zero-wait-state (CACHE-004, CORE-009). No
+     * sections are placed here; tests copy code/data at runtime. */
+    ITCMRAM (rwx) : ORIGIN = 0x00000000, LENGTH =  16K
 }
+
+PROVIDE(hwval_itcm_base = ORIGIN(ITCMRAM));
 
 /* No libc heap: FreeRTOS heap_4 is static (section 5 of the SRS). */
 _Min_Heap_Size  = 0;
