@@ -79,6 +79,7 @@ int main(void)
     hwval_test_register_mem();  /* SDMMC/QSPI/FMC (8.24/8.25/8.26)           */
     hwval_test_register_eth_usb(); /* ETH + USB FS/HS (8.27/8.28/8.29)       */
     hwval_test_register_gfx_misc(); /* LTDC/DMA2D/JPEG/DCMI + misc (8.30/31) */
+    hwval_test_register_dbg_brd(); /* DBG + ST-LINK/board (8.32/8.33)       */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */

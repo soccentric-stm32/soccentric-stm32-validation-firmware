@@ -145,6 +145,7 @@ list(APPEND PROJECT_SOURCES   tests/test_can.c)
 list(APPEND PROJECT_SOURCES   tests/test_sd_qspi_fmc.c)
 list(APPEND PROJECT_SOURCES   tests/test_eth_usb.c)
 list(APPEND PROJECT_SOURCES   tests/test_gfx_misc.c)
+list(APPEND PROJECT_SOURCES   tests/test_dbg_brd.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
