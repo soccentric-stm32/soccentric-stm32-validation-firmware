@@ -124,11 +124,10 @@ TAGS
 .ccls-cache/
 .cache/
 
-# --- Exception: intentional firmware dumps ------------------
-# backup/ holds deliberately stored factory firmware; never ignore it
-# even though it matches the binary-artifact patterns above.
-!backup/**
-!backup/
+# --- Vendor firmware dumps -----------------------------------
+# ST's factory firmware is not redistributed (docker/README.md).
+backup/
+factory-firmware.bin
 # host-tool reports (generated)
 reports/
 

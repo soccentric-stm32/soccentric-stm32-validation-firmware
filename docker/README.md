@@ -186,10 +186,12 @@ and `"gdbTarget": "localhost:3333"` while `gdbserver` is running.
 
 ## Factory firmware backup
 
-`backup/factory-firmware.bin` holds the 2 MB of flash as shipped, read on
-2026-11-02 (SHA-256 `a5ffdf6c5adb676412e4397d58a8b7528d922dbe5f5dfdc5fab948c0b27d51da`).
-To restore it:
+The 2 MB of flash as shipped by ST was read on 2026-11-02 (SHA-256
+`a5ffdf6c5adb676412e4397d58a8b7528d922dbe5f5dfdc5fab948c0b27d51da`). It is
+ST's own firmware, so it is not distributed with this repository; keep the
+dump outside the project. To restore it, copy it into the project directory
+(the container only sees files there) and flash it:
 
 ```bash
-scripts/docker-dev.sh flash backup/factory-firmware.bin
+scripts/docker-dev.sh flash factory-firmware.bin
 ```
