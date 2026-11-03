@@ -59,8 +59,9 @@ struct tfw_case {
  * TFW-006: S, L, E, destructive, MCU-resetting last. */
 void hwval_test_register(const struct tfw_case *table, size_t count);
 
-/* Section-5 registration entry point (tests/test_rtos.c). */
+/* Registration entry points, one per test file (called from main). */
 void hwval_test_register_rtos(void);
+void hwval_test_register_dev(void);
 
 size_t hwval_test_count(void);
 const struct tfw_case *hwval_test_at(size_t index);

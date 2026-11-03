@@ -56,6 +56,7 @@ int main(void)
     hwval_uart3_puts("HWVAL: boot ok, starting RTOS tasks (section 5)\r\n");
 
     hwval_test_register_rtos(); /* RTOS self-tests (section 5.3)             */
+    hwval_test_register_dev();  /* device identity (section 8.1)             */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */

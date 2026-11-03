@@ -51,3 +51,16 @@
  *      irq-latency observed 33 cycles, ctx switch 708 cycles (this build) */
 
 #endif /* HWVAL_LIMITS_H */
+/* --- DEV-004 package register code(s) (CL-014: confirm on bench) ---------- */
+#define HWVAL_LIM_PKG_LQFP144      0x6U
+#define HWVAL_LIM_PKG_LQFP144_ALT  0x7U
+
+/* --- DEV-006 plausible factory-calibration bands (raw 12-bit counts;
+ *      derived from the DS11532 typical values at VDDA 3.3 V: VREFINT
+ *      ~= 1.212 V, TS_CAL1 @ 30 C ~= 0.76 V, TS_CAL2 @ 110 C ~= 0.96 V) --- */
+#define HWVAL_LIM_VREFINT_CAL_MIN  1300U
+#define HWVAL_LIM_VREFINT_CAL_MAX  1750U
+#define HWVAL_LIM_TS_CAL1_MIN      800U
+#define HWVAL_LIM_TS_CAL1_MAX      1100U
+#define HWVAL_LIM_TS_CAL2_MIN      1000U
+#define HWVAL_LIM_TS_CAL2_MAX      1350U
