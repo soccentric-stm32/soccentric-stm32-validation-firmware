@@ -62,23 +62,38 @@ static int rtc_seconds_tick_wait(volatile const uint32_t *rtc_dr_wait,
     return -1;
 }
 
-/* RTC must be configured (init from LSE) or the DR register is frozen. */
+/* The RTC must run from the LSE, or the DR register is frozen (CL-024).
+ * RTCSEL can only be set while it is still "no clock"; changing another
+ * selection needs a backup-domain reset, which is left to the destructive
+ * RTC tests (test_rtc.c), so that case reports "not available". */
 static int rtc_start_lse(void)
 {
-    lse_on_and_ready();
-    if ((RTC->CR & RTC_ISR_INITS) == 0U) {
-        /* init mode; set prescalers for 32.768 kHz; leave date free-run */
+    if (lse_on_and_ready() == 0) {
+        return -1;
+    }
+    uint32_t sel = RCC->BDCR & RCC_BDCR_RTCSEL;
+    if (sel == 0U) {
+        MODIFY_REG(RCC->BDCR, RCC_BDCR_RTCSEL, RCC_BDCR_RTCSEL_0); /* LSE */
+    } else if (sel != RCC_BDCR_RTCSEL_0) {
+        return -1;
+    }
+    SET_BIT(RCC->BDCR, RCC_BDCR_RTCEN);
+
+    /* INITS = calendar initialised (year set): keep a calendar someone
+     * set; otherwise program the 1 Hz prescalers and let it free-run. */
+    if ((RTC->ISR & RTC_ISR_INITS) == 0U) {
         RTC->WPR = 0xCAU; RTC->WPR = 0x53U;
         RTC->ISR |= RTC_ISR_INIT;
         for (uint32_t i = 0U; (i < 1000000U) && ((RTC->ISR &
              RTC_ISR_INITF) == 0U); i++) { ; }
         if ((RTC->ISR & RTC_ISR_INITF) != 0U) {
-            RTC->PRER = (127UL << 16U) | 255UL /* PSC 128, WUCK? sync 1 Hz: pred_s 127, pred_a 255 */; /* 32.768 -> 1 Hz */
-            RTC->ISR &= ~RTC_ISR_INIT;
+            /* 32.768 kHz / (PREDIV_A 127 + 1) / (PREDIV_S 255 + 1) = 1 Hz */
+            RTC->PRER = (127UL << 16U) | 255UL;
         }
+        RTC->ISR &= ~RTC_ISR_INIT;
         RTC->WPR = 0xFFU;
     }
-    return ((RTC->CR & RTC_ISR_INITS) != 0U) ? 0 : -1;
+    return ((RTC->ISR & RTC_ISR_INIT) == 0U) ? 0 : -1;
 }
 
 /* count 1 MHz TIM2 ticks while RTC seconds tick twice; returns ticks/2s */
@@ -148,13 +163,15 @@ static tfw_result_t clk_hsi(struct tfw_out *o)
         hwval_fail(o, "LSE reference lost (rc=%lu)", (unsigned long)rc);
         return TFW_FAIL;
     }
-    /* ticks were counted on a 16 MHz/1 = 16 MHz... APB1x2 = 16 MHz (see
-     * set): measured MHz = ticks/2e6 * 16 -> compare vs 16 MHz */
-    int64_t mhz16 = ticks * 16 / 2000000;
-    hwval_meas(o, "HSI-derived ticks=%ld us/2s -> %ld MHz", (long)ticks,
-               (long)mhz16);
-    hwval_lim(o, "16 MHz +-1 %% (HWVAL_LIM_HSI_TOL_PPM=10000)");
-    if ((mhz16 < 15840) || (mhz16 > 16160)) {
+    /* SYSCLK = HSI, APB1 /1, so TIM2 runs at the HSI and its prescaler
+     * assumes the nominal 16 MHz: 2 000 000 ticks per 2 s at exactly
+     * 16 MHz. HSI in kHz = ticks * 16000 / 2000000 (CL-024). */
+    int64_t hsi_khz = ticks * 16000 / 2000000;
+    int64_t tol_khz = 16000 * (int64_t)HWVAL_LIM_HSI_TOL_PPM / 1000000;
+    hwval_meas(o, "HSI-derived ticks=%ld per 2 s -> %ld kHz", (long)ticks,
+               (long)hsi_khz);
+    hwval_lim(o, "16000 kHz +-1 %% (HWVAL_LIM_HSI_TOL_PPM=10000)");
+    if ((hsi_khz < 16000 - tol_khz) || (hsi_khz > 16000 + tol_khz)) {
         hwval_fail(o, "HSI out of tolerance");
         return TFW_FAIL;
     }
