@@ -63,7 +63,7 @@ static const struct { const char *name; uint8_t owned; } k_vec_names[] = {
     { "USART1_IRQHandler", 0 },
     { "USART2_IRQHandler", 0 },
     { "USART3_IRQHandler", 1 },
-    { "EXTI15_10_IRQHandler", 0 },
+    { "EXTI15_10_IRQHandler", 1 },
     { "RTC_Alarm_IRQHandler", 1 },
     { "OTG_FS_WKUP_IRQHandler", 0 },
     { "TIM8_BRK_TIM12_IRQHandler", 0 },
@@ -271,8 +271,6 @@ void USART1_IRQHandler(void) { s_h37++; nest_enter(); nest_exit(); }
 static volatile uint32_t s_h38;
 void USART2_IRQHandler(void) { s_h38++; nest_enter(); nest_exit(); }
 
-static volatile uint32_t s_h40;
-void EXTI15_10_IRQHandler(void) { s_h40++; nest_enter(); nest_exit(); }
 
 static volatile uint32_t s_h42;
 void OTG_FS_WKUP_IRQHandler(void) { s_h42++; nest_enter(); nest_exit(); }
@@ -507,7 +505,7 @@ static volatile uint32_t *hit_of(int i)
         (const void *)&s_h37,
         (const void *)&s_h38,
         NULL,
-        (const void *)&s_h40,
+        NULL,
         NULL,
         (const void *)&s_h42,
         (const void *)&s_h43,
@@ -522,7 +520,7 @@ static volatile uint32_t *hit_of(int i)
         (const void *)&s_h52,
         (const void *)&s_h53,
         NULL,
-        (const void *)&s_h55,
+        NULL,
         (const void *)&s_h56,
         NULL,
         (const void *)&s_h58,

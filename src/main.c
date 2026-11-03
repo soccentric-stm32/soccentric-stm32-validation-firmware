@@ -68,6 +68,7 @@ int main(void)
     hwval_test_register_int();  /* NVIC/EXTI/SYSCFG (section 8.11)           */
     hwval_test_register_dma();  /* DMA controllers (section 8.12)            */
     hwval_test_register_gpio(); /* GPIO matrix (section 8.13)                */
+    hwval_test_register_led_btn(); /* LEDs + buttons (section 8.14)          */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */
