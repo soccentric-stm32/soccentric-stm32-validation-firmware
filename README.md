@@ -81,3 +81,9 @@ The firmware is complete but awaits the bench pass (not yet run): Level-S
 suite (`run all --level S --no-operator`), then harness-wired L and
 equipment E cases, exactly as staged in [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 §4–§8. Open bench items are Appendix D OPEN-002/003/005.
+
+## License
+
+[MIT](LICENSE) © 2026 Sandesh Ghimire. Use it as a starting point for your own
+products. Third-party code (STM32CubeF7, FreeRTOS, LwIP, Embassy, Zephyr and
+others) is fetched at build time and keeps its own licence.
