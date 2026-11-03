@@ -22,7 +22,8 @@ static void pclk1_of(uint32_t *timclk)
 {
     uint32_t pclk1 = HAL_RCC_GetPCLK1Freq();
 
-    *timclk = ((RCC->CFGR & RCC_CFGR_PPRE1) == 0U) ? pclk1 * 2U : pclk1;
+    /* x2 unless the APB1 prescaler is 1 (RM0410; CL-023). */
+    *timclk = ((RCC->CFGR & RCC_CFGR_PPRE1) == 0U) ? pclk1 : pclk1 * 2U;
 }
 
 extern volatile uint32_t hwval_nmi_count; /* src/fault.c */
@@ -263,7 +264,7 @@ static tfw_result_t clk_lsi(struct tfw_out *o)
     __HAL_RCC_TIM5_CLK_ENABLE();
     pclk1_of(&timclk);
     TIM5->CR1 = 0U;
-    TIM5->PSC = (timclk / 1000000U) - 1U;   /* 1 MHz count */
+    TIM5->PSC = 0U;                          /* count at the timer clock */
     TIM5->ARR = 0xFFFFFFFFU;
     TIM5->CCMR2 = TIM_CCMR2_CC4S_0;              /* CH4 input capture   */
     TIM5->CCER = TIM_CCER_CC4E;
@@ -296,7 +297,8 @@ static tfw_result_t clk_lsi(struct tfw_out *o)
     uint64_t sum = 0U;
     for (uint32_t i = 0U; i < n - 1U; i++) { sum += periods[i]; }
     uint32_t mean = (uint32_t)(sum / (n - 1U));
-    uint64_t lsi_hz = (mean > 0U) ? ((uint64_t)timclk * 1000000ULL) / mean : 0U;
+    /* CL-023: one LSI period is `mean` timer-clock ticks. */
+    uint64_t lsi_hz = (mean > 0U) ? (uint64_t)timclk / mean : 0U;
     hwval_meas(o, "mean=%lu ticks -> LSI ~%lu Hz", (unsigned long)mean,
                (unsigned long)lsi_hz);
     hwval_lim(o, "17-47 kHz [DS11532] (HWVAL_LIM_LSI_MIN/MAX_HZ)");
@@ -476,12 +478,15 @@ static tfw_result_t clk_bus_prescalers(struct tfw_out *o)
         }
         uint32_t pclk1 = HAL_RCC_GetPCLK1Freq();
         uint32_t pre = (RCC->CFGR & RCC_CFGR_PPRE1) >> RCC_CFGR_PPRE1_Pos;
-        uint32_t timclk_expect = (pre == 0U) ? pclk1 * 2U : pclk1;
-        /* the x2 rule is a pure register-math check at Level S; measured
-         * validation per-divider happens with TIM capture (CLK-001 test
-         * already exercised DIV1; LSI capture used PCLK1x2) */
-        if (((pre == 0U) && (timclk_expect == pclk1 * 2U)) ||
-            ((pre != 0U) && (timclk_expect == pclk1))) {
+        /* PPRE1 codes 0xx = divide by 1 (RM0410). CL-023: this check
+         * used to encode the inverted rule. */
+        int div1 = (pre & 0x4U) == 0U;
+        uint32_t timclk_expect = div1 ? pclk1 : pclk1 * 2U;
+        uint32_t timclk_actual;
+        pclk1_of(&timclk_actual);
+        /* the x2 rule is a register-math check at Level S: the helper
+         * the timer tests use must agree with RM0410 for every divider */
+        if (timclk_actual == timclk_expect) {
             ok++;
         }
         tried++;

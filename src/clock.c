@@ -134,8 +134,10 @@ void hwval_clock_get_tree(hwval_clock_tree_t *t)
     t->sysclk_hz   = HAL_RCC_GetSysClockFreq();
     t->pclk1_hz    = pclk1;
     t->pclk2_hz    = pclk2;
-    t->apb1_tim_hz = (apb1_pre == RCC_CFGR_PPRE1_DIV1) ? pclk1 * 2U : pclk1;
-    t->apb2_tim_hz = (apb2_pre == RCC_CFGR_PPRE2_DIV1) ? pclk2 * 2U : pclk2;
+    /* x2 unless the APB prescaler is 1 (RM0410; CL-023). The fields are
+     * shifted down, so "divide by 1" is 0 (codes 0xx). */
+    t->apb1_tim_hz = ((apb1_pre & 0x4U) == 0U) ? pclk1 : pclk1 * 2U;
+    t->apb2_tim_hz = ((apb2_pre & 0x4U) == 0U) ? pclk2 : pclk2 * 2U;
     t->hse_hz      = HWVAL_HSE_FREQ_HZ;
     t->hsi_hz      = HSI_VALUE;
     t->lsi_hz      = LSI_VALUE;

@@ -18,8 +18,10 @@ void TIM6_DAC_IRQHandler(void);
 HAL_StatusTypeDef HAL_InitTick(uint32_t TickPriority)
 {
     uint32_t pclk1 = HAL_RCC_GetPCLK1Freq();
-    /* APB timers run at PCLK x2 unless the APB prescaler is 1 (RM0410). */
-    uint32_t timclk = ((RCC->CFGR & RCC_CFGR_PPRE1) == 0U) ? pclk1 * 2U : pclk1;
+    /* APB timers run at PCLK x2 unless the APB prescaler is 1 (RM0410,
+     * CL-023: this was inverted, so the HAL tick ran at 2 kHz after
+     * hwval_clock_init and at 500 Hz before it). */
+    uint32_t timclk = ((RCC->CFGR & RCC_CFGR_PPRE1) == 0U) ? pclk1 : pclk1 * 2U;
     uint32_t prescaller = (timclk / 1000000U) - 1U;
 
     __HAL_RCC_TIM6_CLK_ENABLE();
