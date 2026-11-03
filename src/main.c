@@ -78,6 +78,7 @@ int main(void)
     hwval_test_register_can();  /* CAN1-3 (section 8.23)                     */
     hwval_test_register_mem();  /* SDMMC/QSPI/FMC (8.24/8.25/8.26)           */
     hwval_test_register_eth_usb(); /* ETH + USB FS/HS (8.27/8.28/8.29)       */
+    hwval_test_register_gfx_misc(); /* LTDC/DMA2D/JPEG/DCMI + misc (8.30/31) */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */

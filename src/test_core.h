@@ -83,6 +83,7 @@ void hwval_test_register_i2c(void);
 void hwval_test_register_can(void);
 void hwval_test_register_mem(void);
 void hwval_test_register_eth_usb(void);
+void hwval_test_register_gfx_misc(void);
 
 size_t hwval_test_count(void);
 const struct tfw_case *hwval_test_at(size_t index);
