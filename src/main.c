@@ -59,6 +59,7 @@ int main(void)
     hwval_test_register_dev();  /* device identity (section 8.1)             */
     hwval_test_register_cm7();  /* Cortex-M7 core (section 8.2)              */
     hwval_test_register_cache_mpu(); /* caches/TCM/MPU (section 8.3)          */
+    hwval_test_register_ram();  /* internal RAM (section 8.4)                */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */

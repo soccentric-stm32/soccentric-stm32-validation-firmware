@@ -120,7 +120,8 @@ set(PROJECT_SOURCES
     tests/test_rtos.c
     tests/test_dev.c
     tests/test_core_m7.c
-    tests/test_cache_mpu.c)
+    tests/test_cache_mpu.c
+    tests/test_ram.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
