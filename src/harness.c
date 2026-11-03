@@ -3,84 +3,104 @@
  *
  * Author:  Sandesh Ghimire <sandesh@soccentric.com>
  * Date:    2026-11-02
- * SRS:     ENV-002, CLI-030, GPIO-004.
- *
- * The pin pairs of Appendix A are fixed against [DS11532]/[UM1974] during
- * the section 8.13 (GPIO) pass (CL-005); until then the table is empty and
- * `harness` reports zero fitted wires. Detection drives one end and reads
- * the other, for each pair.
+ * SRS:     ENV-002, CLI-030, GPIO-004. Pairs live in board/hwval_board_pins.c
+ *          (CL-005). Detection drives one end and reads the other, both
+ *          directions, for every non-verify wire; wires flagged verify=1
+ *          (AF muxing to confirm on bench, OPEN-004) are detected but
+ *          reported as unverified.
  */
 
 #include <stdio.h>
 #include "stm32f7xx_hal.h"
-#include "hwval_board.h"
-#include "harness.h"
-#include "uart3.h"
+#include "hwval_board_pins.h"
 
-struct harness_pair {
-    GPIO_TypeDef *pa; uint32_t pin_a;
-    GPIO_TypeDef *pb; uint32_t pin_b;
-    const char   *name;
-    const char   *used_by;
+static GPIO_TypeDef *const s_ports[9] = {
+    GPIOA, GPIOB, GPIOC, GPIOD, GPIOE, GPIOF, GPIOG, NULL, GPIOH,
 };
 
-/* CL-005: pin pairs land here with the section 8.13 pass. */
-static const struct harness_pair k_pairs[] = { /* empty for now */ };
-
-int hwval_harness_count(void)
+static void clk_on(uint8_t port)
 {
-    return (int)(sizeof(k_pairs) / sizeof(k_pairs[0]));
-}
-
-/* Detect one wire: drive A low/high, B is input with pull-up; B follows A
- * in both directions -> wire fitted. Returns 1/0. */
-static int pair_detect(const struct harness_pair *p)
-{
-    GPIO_InitTypeDef gi = {
-        .Pin = p->pin_b, .Mode = GPIO_MODE_INPUT, .Pull = GPIO_PULLUP,
-        .Speed = GPIO_SPEED_FREQ_LOW
-    };
-    GPIO_InitTypeDef go = {
-        .Pin = p->pin_a, .Mode = GPIO_MODE_OUTPUT_OD, .Pull = GPIO_NOPULL,
-        .Speed = GPIO_SPEED_FREQ_LOW
-    };
-
-    HAL_GPIO_Init(p->pb, &gi);
-    HAL_GPIO_Init(p->pa, &go);
-
-    GPIO_PinState follow = GPIO_PIN_SET;
-    HAL_GPIO_WritePin(p->pa, p->pin_a, GPIO_PIN_RESET);
-    for (volatile int i = 0; i < 200; i++) { ; }
-    if (HAL_GPIO_ReadPin(p->pb, p->pin_b) == GPIO_PIN_SET) {
-        goto out;
+    switch (port) {
+    case 0: __HAL_RCC_GPIOA_CLK_ENABLE(); break;
+    case 1: __HAL_RCC_GPIOB_CLK_ENABLE(); break;
+    case 2: __HAL_RCC_GPIOC_CLK_ENABLE(); break;
+    case 3: __HAL_RCC_GPIOD_CLK_ENABLE(); break;
+    case 4: __HAL_RCC_GPIOE_CLK_ENABLE(); break;
+    case 5: __HAL_RCC_GPIOF_CLK_ENABLE(); break;
+    case 6: __HAL_RCC_GPIOG_CLK_ENABLE(); break;
+    case 8: __HAL_RCC_GPIOH_CLK_ENABLE(); break;
+    default: break;
     }
-    HAL_GPIO_WritePin(p->pa, p->pin_a, GPIO_PIN_SET);
-    for (volatile int i = 0; i < 200; i++) { ; }
-    follow = HAL_GPIO_ReadPin(p->pb, p->pin_b);
-
-out:
-    /* restore: both inputs, no pull */
-    gi.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(p->pb, &gi);
-    HAL_GPIO_Init(p->pa, &gi);
-    return (int)(follow == GPIO_PIN_SET);
 }
 
-/* Bitmask of detected wires (index i -> bit i), for ENV-002 gating. */
+static volatile GPIO_TypeDef *pin_port(uint8_t p)
+{ return (p < 9) ? (volatile GPIO_TypeDef *)s_ports[p] : NULL; }
+
+/* drive A (OD) low/high twice, B is input with the opposite pull */
+static int pair_detect(const struct hwval_wire *w)
+{
+    volatile GPIO_TypeDef *pa = pin_port(w->ap);
+    volatile GPIO_TypeDef *pb = pin_port(w->bp);
+    GPIO_InitTypeDef gi, go;
+    int ok = 1;
+
+    if ((pa == NULL) || (pb == NULL)) {
+        return 0;
+    }
+    clk_on(w->ap);
+    clk_on(w->bp);
+
+    gi.Pin   = (1UL << w->bn);
+    gi.Mode  = GPIO_MODE_INPUT;
+    gi.Pull  = GPIO_PULLDOWN;
+    go.Pin   = (1UL << w->an);
+    go.Mode  = GPIO_MODE_OUTPUT_OD;
+    go.Pull  = GPIO_PULLUP;
+    HAL_GPIO_Init((GPIO_TypeDef *)pb, &gi);
+    HAL_GPIO_Init((GPIO_TypeDef *)pa, &go);
+
+    /* drive A low: with pull-down on B, a connected wire reads 0 */
+    HAL_GPIO_WritePin((GPIO_TypeDef *)pa, (1UL << w->an), GPIO_PIN_RESET);
+    for (volatile int i = 0; i < 400; i++) { ; }
+    if (HAL_GPIO_ReadPin((GPIO_TypeDef *)pb, (1UL << w->bn)) != GPIO_PIN_RESET) {
+        ok = 0;
+    }
+    /* drive A high: wire pulls B up through the OD high-Z + B pulldown...
+     * use push-pull high instead: */
+    go.Mode = GPIO_MODE_OUTPUT_PP;
+    HAL_GPIO_Init((GPIO_TypeDef *)pa, &go);
+    gi.Pull = GPIO_PULLDOWN;
+    HAL_GPIO_Init((GPIO_TypeDef *)pb, &gi);
+    HAL_GPIO_WritePin((GPIO_TypeDef *)pa, (1UL << w->an), GPIO_PIN_SET);
+    for (volatile int i = 0; i < 400; i++) { ; }
+    if (HAL_GPIO_ReadPin((GPIO_TypeDef *)pb, (1UL << w->bn)) != GPIO_PIN_SET) {
+        ok = 0;
+    }
+
+    /* restore both to their default (input, no pull) */
+    gi.Pin = (1UL << w->an); gi.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init((GPIO_TypeDef *)pa, &gi);
+    gi.Pin = (1UL << w->bn);
+    HAL_GPIO_Init((GPIO_TypeDef *)pb, &gi);
+    return ok;
+}
+
 uint32_t hwval_harness_detected(void)
 {
     uint32_t mask = 0U;
 
-    if (!hwval_uart3_ready()) {
-        return 0U;
-    }
-    for (unsigned i = 0U; i < (unsigned)hwval_harness_count(); i++) {
-        if (pair_detect(&k_pairs[i]) != 0) {
+    for (uint8_t i = 0U; i < HWVAL_WIRE_TABLE_N; i++) {
+        if (hwval_wire_table[i].verify != 0U) {
+            continue; /* AF map not bench-verified yet: not reported */
+        }
+        if ((pair_detect(&hwval_wire_table[i]) != 0) && (i < 32U)) {
             mask |= 1U << i;
         }
     }
     return mask;
 }
+
+int hwval_harness_count(void) { return (int)HWVAL_WIRE_TABLE_N; }
 
 int hwval_harness_fitted(int index)
 {
@@ -89,7 +109,13 @@ int hwval_harness_fitted(int index)
 
 void hwval_harness_report(void)
 {
-    (void)printf("harness: %d pair(s) configured, mask 0x%08lX\r\n",
-                 hwval_harness_count(),
-                 (unsigned long)hwval_harness_detected());
+    int fitted = 0;
+
+    for (uint8_t i = 0U; i < HWVAL_WIRE_TABLE_N; i++) {
+        if (hwval_harness_fitted((int)i) != 0) {
+            fitted++;
+        }
+    }
+    (void)printf("harness: %d/%d wires fitted (verify-on-bench wires "
+                 "excluded)\r\n", fitted, (int)HWVAL_WIRE_TABLE_N);
 }

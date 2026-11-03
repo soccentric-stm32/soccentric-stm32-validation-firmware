@@ -35,7 +35,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Resolve symlinks (pwd -P) so paths match realpath in container_path().
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 DOCKER_DIR="$PROJECT_DIR/docker"
 
 IMAGE="${STM32_IMAGE:-stm32-dev:latest}"

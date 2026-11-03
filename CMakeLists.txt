@@ -119,6 +119,7 @@ set(PROJECT_SOURCES
     src/cli.c
     src/settings.c
     src/harness.c
+    board/hwval_board_pins.c
     tests/test_rtos.c
     tests/test_dev.c
     tests/test_core_m7.c
@@ -130,6 +131,7 @@ list(APPEND PROJECT_SOURCES   tests/test_clk.c)
 list(APPEND PROJECT_SOURCES   tests/test_pwr.c)
 list(APPEND PROJECT_SOURCES   tests/test_rst_wdg.c)
 list(APPEND PROJECT_SOURCES   tests/test_rtc.c)
+list(APPEND PROJECT_SOURCES   tests/test_int.c)
 
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
