@@ -64,6 +64,7 @@ int main(void)
     hwval_test_register_clk();  /* clocks (section 8.6)                      */
     hwval_test_register_pwr();  /* power (section 8.7)                       */
     hwval_test_register_rst_wdg(); /* resets + watchdogs (sections 8.8/8.9)  */
+    hwval_test_register_rtc();  /* RTC + backup registers (section 8.10)     */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */
