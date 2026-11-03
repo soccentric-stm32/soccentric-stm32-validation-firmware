@@ -1,0 +1,16 @@
+/*
+ * harness.h - loopback harness detection (Appendix A, ENV-002)
+ *
+ * Author:  Sandesh Ghimire <sandesh@soccentric.com>
+ * Date:    2026-11-02
+ */
+
+#ifndef HWVAL_HARNESS_H
+#define HWVAL_HARNESS_H
+
+int      hwval_harness_count(void);
+uint32_t hwval_harness_detected(void);
+int      hwval_harness_fitted(int index);
+void     hwval_harness_report(void);
+
+#endif /* HWVAL_HARNESS_H */

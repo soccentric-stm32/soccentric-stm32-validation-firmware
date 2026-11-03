@@ -71,8 +71,57 @@ static void print_result(const struct tfw_case *c, tfw_result_t r,
     hwval_uart3_write(line, 0U);
 }
 
-/* Run every non-operator, non-destructive Level-S test (order rules grow
- * in section 7 per TFW-006). */
+/* Run a selector (CLI-024): "all" or a test id or a group name. Flags
+ * (e.g. "--destructive") arrive with section 7; until then operator and
+ * destructive cases are recorded as SKIP with their reason. */
+int hwval_test_run_sel(const char *selector, const char *flags)
+{
+    (void)flags; /* --level/--repeat/--until-fail arrive with section 7 */
+    static char reason[HWVAL_REASON_BUF];
+    const int all = (strcmp(selector, "all") == 0);
+    int run_count = 0;
+
+    for (size_t i = 0U; (i < s.count) && (i < HWVAL_MAX_TESTS); i++) {
+        const struct tfw_case *c = &s.table[i];
+        TickType_t t0;
+        tfw_result_t r;
+
+        int match = all || (strcmp(c->id, selector) == 0) ||
+                    (strcmp(c->group, selector) == 0);
+        if (!match) {
+            continue;
+        }
+        if ((c->needs_operator != 0U) || (c->destructive != 0U)) {
+            s.results[i].result = TFW_SKIP;
+            s.results[i].duration_ms = 0U;
+            (void)snprintf(reason, sizeof(reason),
+                           "needs operator/destructive flag (CLI)");
+            (void)snprintf(s.results[i].reason,
+                           sizeof(s.results[i].reason), "%s", reason);
+            print_result(c, TFW_SKIP, 0U, reason);
+            continue;
+        }
+
+        s.running = 1;
+        t0 = xTaskGetTickCount();
+        reason[0] = '\0';
+        s.current_timeout_ms = (c->timeout_ms != 0U) ? c->timeout_ms : 2000U;
+        s.last_progress_tick = (uint32_t)t0;
+        r = c->fn(reason, HWVAL_REASON_BUF);
+        s.results[i].result = r;
+        s.results[i].duration_ms = (uint32_t)(xTaskGetTickCount() - t0);
+        (void)snprintf(s.results[i].reason, sizeof(s.results[i].reason),
+                       "%s", reason);
+        if (r == TFW_FAIL) {
+            s.failed = 1;
+        }
+        s.running = 0;
+        s.last_progress_tick = (uint32_t)xTaskGetTickCount();
+        print_result(c, r, s.results[i].duration_ms, reason);
+        run_count++;
+    }
+    return run_count;
+}
 void hwval_test_all(void)
 {
     static char reason[HWVAL_REASON_BUF];

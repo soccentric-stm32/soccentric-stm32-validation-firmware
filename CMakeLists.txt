@@ -114,6 +114,9 @@ set(PROJECT_SOURCES
     src/syscalls.c
     src/rtos.c
     src/test_core.c
+    src/cli.c
+    src/settings.c
+    src/harness.c
     tests/test_rtos.c)
 
 set(DEVICE_SOURCES

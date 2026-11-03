@@ -16,6 +16,7 @@
 #include "hwval_board.h"
 #include "rtos.h"
 #include "test_core.h"
+#include "cli.h"
 #include "uart3.h"
 #include "fault.h"
 #include "version.h"
@@ -186,17 +187,8 @@ static void task_watchdog(void *arg)
     }
 }
 
-/* CLI task shell (FRT-010): real line handling lands in section 6 (CLI).
- * For now it consumes RX bytes from the ring buffer so the ISR path is
- * exercised and stays responsive while tests run (FRT-011). */
+/* CLI task (FRT-010, section 6): line editor + commands. */
 static void task_cli(void *arg)
 {
-    (void)arg;
-    for (;;) {
-        int c = hwval_uart3_getc();
-        (void)c; /* line editor + parser arrive in section 6 */
-        if (c < 0) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
-    }
+    hwval_cli_task(arg);
 }

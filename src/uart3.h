@@ -25,6 +25,9 @@ void hwval_uart3_write(const void *buf, size_t n);
 /* One line, \n expanded to \r\n (CLI-005). */
 void hwval_uart3_puts(const char *s);
 
+/* Current baud (CLI-004 bookkeeping for the CLI). */
+int hwval_uart3_baud(void);
+
 /* RX: pop one byte from the ring buffer, -1 if empty (CLI-002). */
 int hwval_uart3_getc(void);
 /* RX notify hook (section 6 replaces polling with a semaphore). */

@@ -73,4 +73,10 @@ typedef struct {
 const hwval_test_result_t *hwval_test_result_of(size_t index);
 #define HWVAL_REASON_BUF 96
 
+/* Run selector for the `run` command (CLI-024): id, group or "all".
+ * Returns the number of cases actually run (skipped operator/destructive
+ * cases are recorded as SKIP, not counted as run). Section 7 adds level
+ * filters, --repeat and the fixed order. */
+int hwval_test_run_sel(const char *selector, const char *flags);
+
 #endif /* HWVAL_TEST_CORE_H */
