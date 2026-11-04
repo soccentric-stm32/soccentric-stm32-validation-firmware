@@ -59,6 +59,11 @@ struct tfw_case {
  * TFW-006: S, L, E, destructive, MCU-resetting last. */
 void hwval_test_register(const struct tfw_case *table, size_t count);
 
+/* Call once after the last group has registered: validates and restores the
+ * results table kept in .noinit. Registering per group must not reset the
+ * accumulated table or re-run the restore. */
+void hwval_test_registration_done(void);
+
 /* Registration entry points, one per test file (called from main). */
 void hwval_test_register_rtos(void);
 void hwval_test_register_dev(void);

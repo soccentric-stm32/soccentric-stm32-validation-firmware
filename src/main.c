@@ -98,6 +98,7 @@ int main(void)
     hwval_test_register_gfx_misc(); /* LTDC/DMA2D/JPEG/DCMI + misc (8.30/31) */
     hwval_test_register_dbg_brd(); /* DBG + ST-LINK/board (8.32/8.33)       */
     hwval_test_register_safe(); /* safety enforcement (section 9)            */
+    hwval_test_registration_done(); /* TFW-022: restore results once         */
     hwval_rtos_start();         /* FRT-010: cli/runner/hb/wdg + scheduler    */
 
     /* Unreachable: the scheduler never returns. */

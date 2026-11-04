@@ -22,11 +22,12 @@ MEMORY
     /* Sectors 0-10 only: 512 KiB * 3.5 = 1792 KiB (GEN-006, NFR-003). */
     FLASH   (rx)  : ORIGIN = 0x08000000, LENGTH = 1792K
     DTCMRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 128K
-    /* SRAM1 minus the 32 KiB .noinit block at its tail. */
-    SRAM1   (rwx) : ORIGIN = 0x20020000, LENGTH = 336K
+    /* SRAM1 minus the 64 KiB .noinit block at its tail. */
+    SRAM1   (rwx) : ORIGIN = 0x20020000, LENGTH = 304K
     /* .noinit: survives any reset that does not remove power (TFW-022
-     * results table, fault/panic records). */
-    NOINIT  (rw)  : ORIGIN = 0x20074000, LENGTH =  32K
+     * results table, fault/panic records). 64 KiB because the results
+     * table holds one row per registered test (256 max). */
+    NOINIT  (rw)  : ORIGIN = 0x2006C000, LENGTH =  64K
     /* SRAM2, general use by the kernel/tasks. */
     SRAM2   (rwx) : ORIGIN = 0x2007C000, LENGTH =   8K
     /* .noncacheable: MPU non-cacheable block for DMA buffers (GEN-007). */

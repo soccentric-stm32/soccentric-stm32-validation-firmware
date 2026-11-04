@@ -119,8 +119,8 @@ static void build_regions(struct ram_region *r)
     (void)dtcm_lo;
 }
 
-#define SRAM1_FREE_WORDS ((336U * 1024U) / 4U)
-/* SRAM1 free part: 0x20020000..0x20073FFF (before .noinit) */
+#define SRAM1_FREE_WORDS ((304U * 1024U) / 4U)
+/* SRAM1 free part: 0x20020000..0x2006BFFF (before .noinit) */
 static struct ram_region s_sram1 = {
     "SRAM1", (volatile uint32_t *)HWVAL_SRAM1_BASE, SRAM1_FREE_WORDS, 0,
     { {0,0},{0,0} },
@@ -187,7 +187,7 @@ static tfw_result_t ram_groups(struct tfw_out *o)
     (void)snprintf(o->reason, sizeof(o->reason),
                    "itcm/dtcm/sram1/sram2 march + save/restore pass");
     (void)snprintf(o->measured, sizeof(o->measured),
-                   "itcm16K dtcm128K sram1 336K sram2 8K");
+                   "itcm16K dtcm128K sram1 304K sram2 8K");
     hwval_lim(o, "March C- clean on all free blocks; live blocks preserved");
     return TFW_PASS;
 }

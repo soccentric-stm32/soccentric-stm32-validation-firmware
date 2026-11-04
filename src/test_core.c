@@ -23,7 +23,7 @@
 #include "cli.h"
 #include "version.h"
 
-#define HWVAL_MAX_TESTS 128
+#define HWVAL_MAX_TESTS 256
 #define PERSIST_MAGIC   0x48565202U /* "HVR" v2 */
 
 /* run-order key (TFW-006): S, L, E, destructive, MCU-resetting last. */
@@ -48,8 +48,6 @@ struct run_cfg {
 };
 
 static struct {
-    const struct tfw_case *src;
-    size_t                 src_count;
     struct tfw_case        order[HWVAL_MAX_TESTS]; /* fixed, sorted view  */
     size_t                 count;
     volatile int           running;
@@ -351,11 +349,16 @@ void hwval_results_restore_or_zero(void)
 /* ---------------------------------------------------- registration ----- */
 void hwval_test_register(const struct tfw_case *table, size_t count)
 {
-    s.src = table;
-    s.src_count = count;
-    s.count = 0U;
+    if ((table == NULL) || (count == 0U)) {
+        return;
+    }
+    if ((s.count + count) > HWVAL_MAX_TESTS) {
+        hwval_uart3_puts("test_core: registration table full, group ignored\r\n");
+        return;
+    }
 
-    for (size_t i = 0U; i < count; i++) { /* stable insert, TFW-006 */
+    /* Append to the one table (TFW-002); stable insert, TFW-006. */
+    for (size_t i = 0U; i < count; i++) {
         size_t j = s.count;
         while ((j > 0U) &&
                (order_key(&s.order[j - 1U]) > order_key(&table[i]))) {
@@ -365,6 +368,10 @@ void hwval_test_register(const struct tfw_case *table, size_t count)
         s.order[j] = table[i];
         s.count++;
     }
+}
+
+void hwval_test_registration_done(void)
+{
     hwval_results_restore_or_zero();
 }
 
