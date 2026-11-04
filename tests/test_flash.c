@@ -73,19 +73,18 @@ static tfw_result_t fls_crc_image(struct tfw_out *o)
 /* ------------------------------------------------------------- FLS-002 */
 static tfw_result_t fls_alias_paths(struct tfw_out *o)
 {
-    /* Read the used image range through AXIM (0x08000000) and the ITCM
-     * alias (0x00000000); full 2 MB would take several ms - check the
-     * image plus sample the rest in 64 KB strides. */
+    /* Read the used image range through AXIM (0x08000000) and the
+     * ITCM-flash alias (0x00200000, FLASHITCM_BASE).  0x00000000 is ITCM
+     * RAM, not flash. */
     uint32_t bytes = (uint32_t)&__flash_image_end - 0x08000000U;
     volatile const uint32_t *axi = (const uint32_t *)0x08000000U;
-    volatile const uint32_t *itc = (const uint32_t *)0x00000000U;
+    volatile const uint32_t *itc = (const uint32_t *)0x00200000U;
     int bad = 0;
 
     for (uint32_t w = 0U; w < bytes / 4U; w += 16U) {
         /* cppcheck-suppress nullPointer ; ITCM flash alias, not NULL */ if (axi[w] != itc[w]) { bad++; }
     }
-    for (uint32_t a = 0x0801C0000U - 0x08000000U;
-         a < 0x08200000U - 0x08000000U; a += 0x10000U) {
+    for (uint32_t a = 0x001C0000U; a < 0x00200000U; a += 0x10000U) {
         if (axi[a / 4U] != itc[a / 4U]) { bad++; }
     }
     hwval_meas(o, "image %lu KB + strides, mismatches=%lu",
@@ -112,7 +111,7 @@ static int flash_reads_ok(void)
     /* deterministic self-check over a known code range: CRC equality
      * between two AXIM reads and ITCM alias on a 16 KB block */
     volatile const uint32_t *axi = (const uint32_t *)0x08020000U;
-    volatile const uint32_t *itc = (const uint32_t *)0x00020000U;
+    volatile const uint32_t *itc = (const uint32_t *)0x00220000U;
 
     for (uint32_t i = 0U; i < 4096U; i++) {
         if (axi[i] != itc[i]) {
