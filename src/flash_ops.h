@@ -24,6 +24,9 @@ void hwval_flash_count_get(uint32_t *eop, uint32_t *err);
 
 /* SAFE-011: 0 = single-bank flash (nDBANK set), 1 = dual-bank mode. */
 int  hwval_flash_dual_bank(void);
+
+/* DEV-002/DEV-003: the 16-bit FLASHSIZE register at 0x1FF0F442, in KB. */
+uint32_t hwval_flash_size_kb(void);
 void hwval_flash_bank_report(void);
 
 /* IRQ handler override (hal_flash_irq.c is not compiled in). */

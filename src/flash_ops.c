@@ -27,6 +27,13 @@ int hwval_flash_dual_bank(void)
     return ((FLASH->OPTCR & FLASH_OPTCR_nDBANK) == 0U) ? 1 : 0;
 }
 
+uint32_t hwval_flash_size_kb(void)
+{
+    /* FLASHSIZE is a 16-bit register; a 32-bit read also picks up the
+     * adjacent UID word. */
+    return (uint32_t)*(const uint16_t *)0x1FF0F442U;
+}
+
 void hwval_flash_bank_report(void)
 {
     if (hwval_flash_dual_bank() != 0) {

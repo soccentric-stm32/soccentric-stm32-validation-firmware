@@ -305,9 +305,12 @@ static bool link_send_hello(uint16_t seq)
     uint32_t devid = DBGMCU->IDCODE;
     uint64_t uid = ((uint64_t)HAL_GetUIDw0() << 32U) |
                    (uint64_t)HAL_GetUIDw1();
+    hwlink_FlashMode_enum_t mode = hwval_flash_dual_bank() != 0
+                                       ? hwlink_FlashMode_DUAL_BANK
+                                       : hwlink_FlashMode_SINGLE_BANK;
     hwlink_HelloReply_ref_t reply = hwlink_HelloReply_create(
         &s_builder, hwlink_Role_HWVAL, name, version, commit, build, uid,
-        devid & 0xFFFU, devid >> 16U, hwlink_FlashMode_SINGLE_BANK,
+        devid & 0xFFFU, devid >> 16U, mode,
         (uint16_t)HWLINK_PROTOCOL_MAJOR, (uint16_t)HWLINK_PROTOCOL_MINOR,
         (uint16_t)HWLINK_MAX_FRAME, detail);
     return link_end(hwlink_Body_as_HelloReply(reply), seq,
@@ -987,7 +990,7 @@ static bool link_send_device_info(uint16_t seq)
         flatbuffers_string_create_str(&s_builder, hwval_build_date()),
         flatbuffers_string_create_str(&s_builder, hwval_srs_id()),
         devid & 0xFFFU, devid >> 16U, SCB->CPUID,
-        *(const uint32_t *)0x1FF0F442U,
+        hwval_flash_size_kb(),
         flatbuffers_string_create_str(&s_builder, pkg),
         flatbuffers_string_create_str(&s_builder, uid),
         *(const uint32_t *)0x40023C14U, *(const uint32_t *)0x40023C18U,

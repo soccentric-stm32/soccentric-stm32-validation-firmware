@@ -27,6 +27,7 @@
 #include "version.h"
 #include "fault.h"
 #include "clock.h"
+#include "flash_ops.h"
 #include "reset_cause.h"
 #include "iwdg.h"
 #include "harness.h"
@@ -329,7 +330,7 @@ static void cmd_info(int argc, char **argv)
                  (unsigned long)((SCB->CPUID >> 4U) & 0xFFFU),
                  (unsigned long)(SCB->CPUID & 0xFU));
     (void)printf("flash=%lu KB package_reg=%08lX\r\n",
-                 (unsigned long)(*(const uint32_t *)0x1FF0F442U),
+                 (unsigned long)hwval_flash_size_kb(),
                  (unsigned long)(*(const uint32_t *)0x1FF0F7E0U));
     (void)printf("UID=%08lX%08lX%08lX\r\n",
                  (unsigned long)(*(const uint32_t *)0x1FF0F420U),
