@@ -928,7 +928,7 @@ void hwval_cli_task(void *arg)
             break;
         case '\r':
         case '\n': /* accept \r, \r\n, \n (CLI-005) */
-            if ((c == '\r')) { hwval_uart3_puts(""); }
+            if (c == '\r') { hwval_uart3_puts(""); }
             if (s_len > 0) {
                 (void)snprintf(s_hist[s_hist_wr % HWVAL_HISTORY],
                                HWVAL_LINE_MAX, "%s", s_line);

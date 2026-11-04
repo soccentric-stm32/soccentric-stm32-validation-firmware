@@ -74,11 +74,11 @@ static tfw_result_t can_loopback_rates(struct tfw_out *o)
     static const CAN_TypeDef *cs[3] = { CAN1, CAN2, CAN3 };
     static const uint32_t rates[4] = { 125000U, 250000U, 500000U, 1000000U };
     int bad = 0;
+    uint32_t seen = 0U;
 
     can_clk();
     for (int n = 0; n < 3; n++) {
         CAN_TypeDef *c = (CAN_TypeDef *)cs[n];
-        uint32_t seen = 0U;
         for (unsigned r = 0U; r < 4U; r++) {
             if (can_configured(c, rates[r]) != 0) {
                 bad++;
@@ -103,7 +103,8 @@ static tfw_result_t can_loopback_rates(struct tfw_out *o)
             seen++;
         }
     }
-    hwval_meas(o, "3 controllers x 4 baud rates: bad=%d", (unsigned long)bad);
+    hwval_meas(o, "3 controllers x 4 baud rates: seen=%u bad=%d",
+               (unsigned long)seen, (unsigned long)bad);
     hwval_lim(o, "silent/self loopback at 125k/250k/500k/1M, std+ext IDs, "
                  "data+remote frames, DLC 0-8 (CAN-001 level S; DLC 0-8 "
                  "ladder on bench)");
