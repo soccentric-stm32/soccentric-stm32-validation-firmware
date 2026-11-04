@@ -12,6 +12,7 @@
 #include "stm32f7xx_hal.h"
 #include "hwval_board.h"
 #include "clock.h"
+#include "link.h"
 
 void hwval_clock_init(void)
 {
@@ -81,6 +82,10 @@ int hwval_clock_set(uint32_t hclk_hz, uint32_t ws)
     RCC_ClkInitTypeDef clk = { 0 };
     RCC_OscInitTypeDef osc = { 0 };
 
+    /* UART baud is derived from PCLK1; while the tree is off-nominal,
+     * unsolicited link traffic would be garbage. */
+    hwval_link_set_quiet(1);
+
     clk.ClockType = RCC_CLOCKTYPE_SYSCLK;
     clk.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
     if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_0) != HAL_OK) {
@@ -122,7 +127,9 @@ int hwval_clock_set(uint32_t hclk_hz, uint32_t ws)
 
 int hwval_clock_restore_default(void)
 {
-    return hwval_clock_set(216000000U, 7U);
+    int rc = hwval_clock_set(216000000U, 7U);
+    hwval_link_set_quiet(0);
+    return rc;
 }
 
 void hwval_clock_get_tree(hwval_clock_tree_t *t)

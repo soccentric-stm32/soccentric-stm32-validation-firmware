@@ -88,6 +88,7 @@ static SemaphoreHandle_t s_tx_mutex;
 static SemaphoreHandle_t s_log_mutex;
 static QueueHandle_t     s_answer_q;
 static volatile int      s_active;
+static volatile int      s_quiet;
 static volatile int      s_boot_active;
 static volatile int      s_boot_report;
 static volatile int      s_text_requested;
@@ -338,6 +339,10 @@ static bool link_send_log(hwlink_LogLevel_enum_t level,
 /* --------------------------------------------------- text sink (LINK-002) */
 static void link_log_flush(hwlink_LogLevel_enum_t level)
 {
+    if (s_quiet != 0) {
+        s_log_len = 0U;
+        return;
+    }
     if (s_log_len > 0U) {
         (void)link_send_log(level, s_log_buf, s_log_len);
         s_log_len = 0U;
@@ -448,6 +453,8 @@ void hwval_link_boot_init(void)
 
 int hwval_link_boot_active(void) { return s_boot_active; }
 int hwval_link_active(void) { return s_active; }
+
+void hwval_link_set_quiet(int on) { s_quiet = (on != 0) ? 1 : 0; }
 
 /* ------------------------------------------------------- boot report ---- */
 static void link_boot_report(void)
@@ -1393,6 +1400,9 @@ static void baud_revert_poll(void)
 
 static void progress_poll(void)
 {
+    if (s_quiet != 0) {
+        return;   /* clock test in progress: the baud is not valid */
+    }
     uint32_t now = (uint32_t)xTaskGetTickCount();
 
     if ((s_run_total == 0U) || (hwval_test_active() == 0)) {

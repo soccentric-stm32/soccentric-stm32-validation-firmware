@@ -42,4 +42,9 @@ int hwval_link_prompt(hwval_prompt_kind_t kind, const char *question,
 
 int hwval_link_active(void);
 
+/* Suspend unsolicited Log/Progress events while a clock test changes
+ * SYSCLK (the UART baud would otherwise be wrong).  Responses still go
+ * out, so Abort keeps working. */
+void hwval_link_set_quiet(int on);
+
 #endif /* HWVAL_LINK_H */
