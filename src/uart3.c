@@ -8,6 +8,8 @@
  *          paste), CLI-003 (interrupt TX, non-blocking), CLI-005 (\r\n out).
  */
 
+#include <stdbool.h>
+
 #include "stm32f7xx_hal.h"
 #include "hwval_board.h"
 #include "uart3.h"
@@ -155,6 +157,22 @@ void hwval_uart3_drain(uint32_t timeout_ms)
     }
 }
 
+static bool tx_push_byte(uint8_t c)
+{
+    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(500);
+
+    while ((uint16_t)((s_tx_head + 1U) % TX_RING_SIZE) == s_tx_tail) {
+        if (xTaskGetTickCount() >= deadline) {
+            return false; /* ring stayed full: drop, non-blocking (CLI-003) */
+        }
+        vTaskDelay(1U);
+    }
+    s_tx_ring[s_tx_head] = c;
+    s_tx_head = (uint16_t)((s_tx_head + 1U) % TX_RING_SIZE);
+    USART3->CR1 |= USART_CR1_TXEIE; /* ISR drains while TXE */
+    return true;
+}
+
 void hwval_uart3_write(const void *buf, size_t n)
 {
     const char *p = (const char *)buf;
@@ -162,18 +180,26 @@ void hwval_uart3_write(const void *buf, size_t n)
     if (!s_ready) {
         return;
     }
+    if (n == 0U) {
+        while (*p != '\0') { p++; }
+        n = (size_t)(p - (const char *)buf);
+        p = (const char *)buf;
+    }
     if (s_sink != NULL) {
-        if (n == 0U) {
-            while (*p != '\0') { p++; }
-            n = (size_t)(p - (const char *)buf);
-            p = (const char *)buf;
-        }
         if (n > 0U) {
             s_sink(p, n);
         }
         return;
     }
-    hwval_uart3_write_direct(buf, n);
+    /* CLI-005: text output maps \n to \r\n. */
+    for (size_t i = 0U; i < n; i++) {
+        if (p[i] == '\n' && !tx_push_byte('\r')) {
+            return;
+        }
+        if (!tx_push_byte((uint8_t)p[i])) {
+            return;
+        }
+    }
 }
 
 void hwval_uart3_write_direct(const void *buf, size_t n)
@@ -188,32 +214,16 @@ void hwval_uart3_write_direct(const void *buf, size_t n)
         n = (size_t)(p - (const char *)buf);
         p = (const char *)buf;
     }
-
+    /* HWLINK frames are binary: no newline translation. */
     for (size_t i = 0U; i < n; i++) {
-        char c = p[i];
-        TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(500);
-
-        while (c == '\n'
-            ? (uint16_t)((s_tx_head + 2U) % TX_RING_SIZE) == s_tx_tail
-            : (uint16_t)((s_tx_head + 1U) % TX_RING_SIZE) == s_tx_tail) {
-            if (xTaskGetTickCount() >= deadline) {
-                return; /* ring stayed full: drop, non-blocking (CLI-003) */
-            }
-            vTaskDelay(1U);
+        if (!tx_push_byte((uint8_t)p[i])) {
+            return;
         }
-
-        if (c == '\n') { /* CLI-005: \n goes out as \r\n */
-            s_tx_ring[s_tx_head] = '\r';
-            s_tx_head = (uint16_t)((s_tx_head + 1U) % TX_RING_SIZE);
-        }
-        s_tx_ring[s_tx_head] = (uint8_t)c;
-        s_tx_head = (uint16_t)((s_tx_head + 1U) % TX_RING_SIZE);
-        USART3->CR1 |= USART_CR1_TXEIE; /* ISR drains while TXE */
     }
 }
 
 void hwval_uart3_puts(const char *s)
 {
     hwval_uart3_write(s, 0U);
-    hwval_uart3_write("\r\n", 2U);
+    hwval_uart3_write_direct("\r\n", 2U);
 }
