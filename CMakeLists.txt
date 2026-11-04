@@ -319,9 +319,13 @@ foreach(_src ${PROJECT_SOURCES})
         list(APPEND HWVAL_LINT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${_src}")
     endif()
 endforeach()
+# clang-tidy runs the host clang but needs the newlib headers used by the
+# arm-none-eabi toolchain; otherwise <stdio.h> is missing.
+set(HWVAL_LINT_EXTRA_ARGS --extra-arg=-isystem
+    --extra-arg=/usr/lib/arm-none-eabi/include)
 add_custom_target(clang-tidy
     COMMAND ${CLANG_TIDY} -quiet -p ${CMAKE_BINARY_DIR} ${HWVAL_LINT_FLAGS}
-            ${HWVAL_LINT_SOURCES}
+            ${HWVAL_LINT_EXTRA_ARGS} ${HWVAL_LINT_SOURCES}
     COMMENT "Running clang-tidy over the project sources"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     VERBATIM)
