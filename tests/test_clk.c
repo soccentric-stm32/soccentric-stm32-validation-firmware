@@ -49,13 +49,22 @@ static int lse_on_and_ready(void)
     return 0;
 }
 
-/* wait for the RTC seconds field to change (LSE on first); returns 0 */
-static int rtc_seconds_tick_wait(volatile const uint32_t *rtc_dr_wait,
-                                 uint32_t *before)
+/* Wait for the RTC seconds field (TR) to change.  Polling DR (the date)
+ * only changes at midnight.  Read DR after TR to unlock the shadow
+ * registers, and use DWT cycles for a clock-independent timeout. */
+static int rtc_seconds_tick_wait(void)
 {
-    *before = *rtc_dr_wait;
-    for (uint32_t i = 0U; i < 6000000U; i++) {
-        if (*rtc_dr_wait != *before) {
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    uint32_t before = RTC->TR & 0x7FU;
+    (void)RTC->DR;
+    uint32_t start = DWT->CYCCNT;
+    uint32_t budget = HAL_RCC_GetHCLKFreq() * 3U; /* 3 s */
+    while ((uint32_t)(DWT->CYCCNT - start) < budget) {
+        uint32_t now = RTC->TR & 0x7FU;
+        (void)RTC->DR;
+        if (now != before) {
             return 0;
         }
     }
@@ -97,32 +106,38 @@ static int rtc_start_lse(void)
 }
 
 /* count 1 MHz TIM2 ticks while RTC seconds tick twice; returns ticks/2s */
-static int64_t lse_measured_ticks(uint32_t *rc)
+/* Count TIM2 ticks over two LSE seconds.  The prescaler is derived from
+ * the *expected* timer clock, not from the measured one: deriving it from
+ * HAL_RCC_GetPCLK1Freq() would scale with the fault being measured and
+ * always produce 2,000,000. */
+static int64_t lse_measured_ticks(uint32_t expected_timclk, uint32_t *rc)
 {
-    uint32_t before, t0, t1;
+    uint32_t t0, t1;
     int64_t ticks;
 
+    if (expected_timclk < 1000000U) {
+        *rc = 4U;
+        return 0;
+    }
     __HAL_RCC_TIM2_CLK_ENABLE();
-    uint32_t pclk1 = HAL_RCC_GetPCLK1Freq();
-    uint32_t timclk = ((RCC->CFGR & RCC_CFGR_PPRE1) == 0U) ? pclk1 : pclk1 * 2U;
     TIM2->CR1 = 0U;
-    TIM2->PSC = (timclk / 1000000U) - 1U;
+    TIM2->PSC = (expected_timclk / 1000000U) - 1U;
     TIM2->ARR = 0xFFFFFFFFU;
     TIM2->EGR = TIM_EGR_UG;
     TIM2->CR1 = TIM_CR1_CEN;
 
-    if (rtc_seconds_tick_wait(&RTC->DR, &before) != 0) {
+    if (rtc_seconds_tick_wait() != 0) {
         TIM2->CR1 = 0U;
         *rc = 1U;
         return 0;
     }
     t0 = TIM2->CNT;
-    if (rtc_seconds_tick_wait(&RTC->DR, &before) != 0) { /* 1st second */
+    if (rtc_seconds_tick_wait() != 0) { /* 1st second */
         TIM2->CR1 = 0U;
         *rc = 2U;
         return 0;
     }
-    if (rtc_seconds_tick_wait(&RTC->DR, &before) != 0) { /* 2nd second */
+    if (rtc_seconds_tick_wait() != 0) { /* 2nd second */
         TIM2->CR1 = 0U;
         *rc = 3U;
         return 0;
@@ -157,7 +172,7 @@ static tfw_result_t clk_hsi(struct tfw_out *o)
         hwval_fail(o, "HSI clock config failed");
         return TFW_FAIL;
     }
-    ticks = lse_measured_ticks(&rc);
+    ticks = lse_measured_ticks(16000000U, &rc);
     (void)hwval_clock_restore_default();
     if (rc != 0U) {
         hwval_fail(o, "LSE reference lost (rc=%lu)", (unsigned long)rc);
@@ -197,7 +212,7 @@ static tfw_result_t clk_hse_bypass(struct tfw_out *o)
         hwval_fail(o, "HSE bypass not ready");
         return TFW_FAIL;
     }
-    ticks = lse_measured_ticks(&rc);
+    ticks = lse_measured_ticks(108000000U, &rc);
     if (rc != 0U) {
         hwval_fail(o, "LSE reference lost");
         return TFW_FAIL;
@@ -286,7 +301,7 @@ static tfw_result_t clk_lsi(struct tfw_out *o)
     TIM5->CCMR2 = TIM_CCMR2_CC4S_0;              /* CH4 input capture   */
     TIM5->CCER = TIM_CCER_CC4E;
     /* TI4_RMP = LSI (RM0410 TIM5_OR) */
-    MODIFY_REG(TIM5->OR, TIM_OR_TI4_RMP, TIM_OR_TI4_RMP_1);
+    MODIFY_REG(TIM5->OR, TIM_OR_TI4_RMP, TIM_OR_TI4_RMP_0); /* LSI */
     TIM5->EGR = TIM_EGR_UG;
     TIM5->CR1 = TIM_CR1_CEN;
 
@@ -343,11 +358,11 @@ static tfw_result_t clk_main_pll(struct tfw_out *o)
     }
     for (unsigned i = 0U; i < 3U; i++) {
         if (hwval_clock_set(pts[i].hz, pts[i].ws) != 0) { ok = 0; break; }
-        ticks = lse_measured_ticks(&rc);
+        ticks = lse_measured_ticks(pts[i].hz / 2U, &rc);
         if (rc != 0U) { ok = 0; break; }
-        int64_t want = (int64_t)(pts[i].hz / 500000U); /* 1 MHz per 500. us */
-        int64_t err = ticks - want * 2;
-        int64_t tol  = want * 2 / 1000; /* +-0.1 % like HSE */
+        int64_t want = 2000000;   /* 1 MHz TIM2 over two LSE seconds */
+        int64_t err = ticks - want;
+        int64_t tol  = want / 1000; /* +-0.1 % like HSE */
         if ((err < -tol) || (err > tol)) {
             (void)snprintf(det, sizeof(det), "%lu MHz err %ld",
                            (unsigned long)(pts[i].hz / 1000000U), (long)err);
