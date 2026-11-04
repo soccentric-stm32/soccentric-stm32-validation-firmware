@@ -90,6 +90,23 @@ suite (`run all --level S --no-operator`), then harness-wired L and
 equipment E cases, exactly as staged in [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
 §4–§8. Open bench items are Appendix D OPEN-002/003/005.
 
+## CI and releases
+
+The [Jenkinsfile](Jenkinsfile) runs the build and checks, then **Package**
+builds `dist/validation-firmware-<version>.tar.gz` with the outputs, a `manifest.json`
+(version, commit, build) and `SHA256SUMS`, and archives `dist/`. For a tag
+`v<version>`, **Release** publishes `dist/` as a GitHub release
+(`ci/github_release.py`, Jenkins credential `github-release-token`); the tag
+must match the version the build reports (`ci/version.sh`), and 0.x versions
+are marked as pre-releases.
+
+To release, bump the version (`HWVAL_VERSION` in `CMakeLists.txt`), push it, then push a matching tag:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
 ## License
 
 [MIT](LICENSE) © 2026 Sandesh Ghimire. Use it as a starting point for your own

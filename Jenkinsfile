@@ -1,7 +1,14 @@
 // Jenkinsfile - multi-stage CI for the HWVAL validation firmware.
 //
 //   Checkout -> Toolchain -> Build -> Static analysis -> Test catalogue
-//            -> Requirement coverage -> Flash layout -> Publish
+//            -> Requirement coverage -> Flash layout -> Package
+//            -> Release (tags) -> Archive
+//
+// Package builds dist/<repo>-<version>.tar.gz (outputs, manifest.json,
+// SHA256SUMS) on every run.  Release runs only for a tag v<version> and
+// publishes dist/ as a GitHub release with the Jenkins secret-text credential
+// github-release-token.  To release: bump the version, push, then push the
+// tag (git tag v0.2.0 && git push origin v0.2.0).
 //
 // Builds run through scripts/docker-dev.sh (CON-001). The on-target tests
 // (tests/test_*.c) are compiled into hwval.elf by the normal build; running
@@ -121,16 +128,31 @@ PY
             }
         }
 
-        stage('Publish') {
+        stage('Package') {
             steps {
                 sh '''
                     make size
-                    sha256sum build/hwval.elf build/hwval.bin build/hwval.hex > build/SHA256SUMS
-                    sha256sum build/hwval.map >> build/SHA256SUMS
-                    cat build/SHA256SUMS
+                    python3 ci/package.py --name validation-firmware --version "$(ci/version.sh)" \\
+                        build/hwval.elf build/hwval.bin build/hwval.hex build/hwval.map \\
+                        README.md LICENSE
                 '''
-                archiveArtifacts artifacts: 'build/hwval.elf,build/hwval.bin,build/hwval.hex,build/hwval.map,build/SHA256SUMS',
-                                 fingerprint: true
+            }
+        }
+
+        stage('Release') {
+            // Only for a tag build (Multibranch job with tag discovery).  The
+            // tag must be v<version>; ci/github_release.py checks it.
+            when { buildingTag() }
+            steps {
+                withCredentials([string(credentialsId: 'github-release-token', variable: 'GITHUB_TOKEN')]) {
+                    sh 'python3 ci/github_release.py --tag "${TAG_NAME}" --version "$(ci/version.sh)" dist/*'
+                }
+            }
+        }
+
+        stage('Archive') {
+            steps {
+                archiveArtifacts artifacts: 'dist/*', fingerprint: true
             }
         }
     }
