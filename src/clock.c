@@ -91,7 +91,9 @@ int hwval_clock_set(uint32_t hclk_hz, uint32_t ws)
     osc.PLL.PLLState        = RCC_PLL_ON;
     osc.PLL.PLLSource       = RCC_PLLSOURCE_HSE;
     osc.PLL.PLLM            = 8U;
-    osc.PLL.PLLN            = hclk_hz / 1000000U;
+    /* VCO = HSE / PLLM * PLLN = 1 MHz * PLLN; SYSCLK = VCO / PLLP.
+     * PLLP is DIV2, so PLLN must be twice the requested SYSCLK in MHz. */
+    osc.PLL.PLLN            = (hclk_hz / 1000000U) * 2U;
     osc.PLL.PLLP            = RCC_PLLP_DIV2;
     osc.PLL.PLLQ            = 9U;
     if (HAL_RCC_OscConfig(&osc) != HAL_OK) {
