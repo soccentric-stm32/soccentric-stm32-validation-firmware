@@ -20,7 +20,11 @@ hwval_settings_t g_set = {
 };
 
 const char *hwval_mode_name(hwval_mode_t m)
-{ return (m == HWVAL_MODE_SCRIPT) ? "script" : "interactive"; }
+{
+    if (m == HWVAL_MODE_SCRIPT) { return "script"; }
+    if (m == HWVAL_MODE_LINK)   { return "link"; }
+    return "interactive";
+}
 
 const char *hwval_format_name(hwval_format_t f)
 { return (f == HWVAL_FMT_JSON) ? "json" : "text"; }

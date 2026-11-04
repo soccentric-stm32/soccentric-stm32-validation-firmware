@@ -8,15 +8,20 @@
  */
 
 #include <stdarg.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 #include "stm32f7xx_hal.h"
 #include "test_core.h"
 #include "uart3.h"
 #include "settings.h"
+#include "hwval_sections.h"
+#include "cli.h"
+#include "version.h"
 
 #define HWVAL_MAX_TESTS 128
 #define PERSIST_MAGIC   0x48565202U /* "HVR" v2 */
@@ -29,13 +34,16 @@ static uint32_t order_key(const struct tfw_case *c)
 }
 
 struct run_cfg {
-    const char *sel;                 /* id, group or "all"                 */
+    const struct tfw_run_req *req;   /* ids/groups/all + run filters       */
     uint8_t     level_ok[3];         /* S/L/E enable bits (CLI-025)        */
     uint8_t     operator_ok;         /* default 1                          */
     uint8_t     destructive_ok;      /* default 0 (SAFE-005)               */
     uint8_t     boot_mode;           /* auto suite skips operator+destruct */
+    uint8_t     print_summary;       /* Runner job prints a text summary   */
     uint32_t    repeat;
     int         until_fail;
+    uint32_t    start_index;         /* LINK-010 resume position           */
+    uint8_t     resumed;
     uint32_t    executed;
 };
 
@@ -45,11 +53,22 @@ static struct {
     struct tfw_case        order[HWVAL_MAX_TESTS]; /* fixed, sorted view  */
     size_t                 count;
     volatile int           running;
+    volatile int           active;
     volatile int           failed;
     volatile uint32_t      last_progress_tick;
     volatile int           abort_requested;
     volatile uint32_t      current_timeout_ms;
+    const char            *current_id;
+    int                    suite_depth;
 } s;
+
+static const struct tfw_hooks *s_hooks;
+
+/* Runner job mailbox: one request at a time, no allocation. */
+static struct tfw_run_req s_job HWVAL_SRAM1;
+static SemaphoreHandle_t  s_job_sem;
+static volatile int       s_job_queued;
+static volatile int       s_job_running;
 
 /* TFW-022: results survive reset in .noinit, guarded by magic and CRC. */
 static __attribute__((section(".noinit")))
@@ -85,20 +104,113 @@ static const char *res_name(tfw_result_t r)
     return names[r];
 }
 
-/* TFW-010/011/012: one start-to-end line, atomic in the TX ring. */
+/* TFW-013: pull a leading number and its unit out of the text fields so the
+ * JSON line carries the structured value next to the text. */
+static int text_first_number(const char *s, const char **end, double *value)
+{
+    const char *p = s;
+
+    while ((*p != '\0') && (!isdigit((unsigned char)*p)) &&
+           (*p != '-') && (*p != '.') && (*p != '+')) {
+        p++;
+    }
+    if (*p == '\0') {
+        return 0;
+    }
+    char *stop = NULL;
+    double v = strtod(p, &stop);
+    if (stop == p) {
+        return 0;
+    }
+    *value = v;
+    *end = stop;
+    return 1;
+}
+
+static void text_unit(const char *p, char *unit, size_t cap)
+{
+    size_t n = 0U;
+
+    while ((*p == ' ') || (*p == '\t')) { p++; }
+    while ((*p != '\0') && (*p != ' ') && (*p != ',') && (*p != ';') &&
+           (*p != ')') && (*p != '\r') && (*p != '\n') && (n + 1U < cap)) {
+        unit[n++] = *p++;
+    }
+    unit[n] = '\0';
+}
+
+static void json_structured(const char *meas, const char *lim,
+                            double *mv, char *mu, size_t muc, int *mok,
+                            double *lmin, double *lmax, char *lu, size_t luc,
+                            int *lok)
+{
+    const char *end = NULL;
+    const char *scan = NULL;
+    double a = 0.0, b = 0.0;
+
+    *mv = 0.0; mu[0] = '\0'; *mok = 0;
+    *lmin = 0.0; *lmax = 0.0; lu[0] = '\0'; *lok = 0;
+
+    if (text_first_number(meas, &end, &a) != 0) {
+        *mv = a;
+        text_unit(end, mu, muc);
+        *mok = 1;
+    }
+    if (text_first_number(lim, &end, &a) != 0) {
+        scan = end;
+        text_unit(end, lu, luc);
+        if (strstr(lim, "<=") != NULL) {
+            *lmax = a; *lok = 1;
+        } else if (strstr(lim, ">=") != NULL) {
+            *lmin = a; *lmax = 1.0e12; *lok = 1;
+        } else if ((strstr(lim, "..") != NULL) ||
+                   (strstr(lim, " to ") != NULL)) {
+            if (text_first_number(scan, &end, &b) != 0) {
+                *lmin = (a <= b) ? a : b;
+                *lmax = (a <= b) ? b : a;
+                *lok = 1;
+                text_unit(end, lu, luc);
+            }
+        } else if (strstr(lim, "+-") != NULL) {
+            if (text_first_number(scan, &end, &b) != 0) {
+                if (strchr(lim, '%') != NULL) {
+                    *lmin = a * (1.0 - (b / 100.0));
+                    *lmax = a * (1.0 + (b / 100.0));
+                } else {
+                    *lmin = a - b;
+                    *lmax = a + b;
+                }
+                *lok = 1;
+                text_unit(end, lu, luc);
+            }
+        }
+    }
+}
+
+/* TFW-010/011/012/013: one start-to-end line, atomic in the TX ring. */
 static void result_emit_line(const struct tfw_case *c,
                              const hwval_test_result_t *r)
 {
-    char line[384];
+    char line[640];
 
     if (g_set.format == HWVAL_FMT_JSON) {
+        double mv, lmin, lmax;
+        char mu[12], lu[12];
+        int mok, lok;
+        json_structured(r->measured, r->limits, &mv, mu, sizeof(mu), &mok,
+                        &lmin, &lmax, lu, sizeof(lu), &lok);
         (void)snprintf(line, sizeof(line),
             "{\"id\":\"%s\",\"group\":\"%s\",\"result\":\"%s\","
-            "\"duration_ms\":%lu,\"reason\":\"%s\",\"measured\":\"%s\","
-            "\"limits\":\"%s\",\"reqs\":\"%s\"}\r\n",
+            "\"duration_ms\":%lu,\"reason\":\"%s\","
+            "\"measured\":\"%s\",\"measured_value\":%.6g,"
+            "\"measured_unit\":\"%s\",\"measured_valid\":%s,"
+            "\"limits\":\"%s\",\"limits_min\":%.6g,\"limits_max\":%.6g,"
+            "\"limits_unit\":\"%s\",\"limits_valid\":%s,"
+            "\"reqs\":\"%s\"}\r\n",
             c->id, c->group, res_name(r->result),
             (unsigned long)r->duration_ms, r->reason, r->measured,
-            r->limits, c->verifies);
+            mv, mu, mok ? "true" : "false", r->limits, lmin, lmax, lu,
+            lok ? "true" : "false", c->verifies);
     } else {
         const char *col = (r->result == TFW_FAIL && g_set.color) ? "\033[31m" :
                           (r->result == TFW_SKIP && g_set.color) ? "\033[33m" :
@@ -209,6 +321,8 @@ void hwval_results_clear(void)
     (void)memset(&s_persist, 0, sizeof(s_persist));
     s_persist.magic = PERSIST_MAGIC;
     s_persist.crc = hwval_results_crc();
+    s.failed = 0;             /* FRT-012: LD3 off after results clear */
+    s.abort_requested = 0;
 }
 
 void hwval_results_restore_or_zero(void)
@@ -277,8 +391,28 @@ int hwval_test_runner_progress_expired(void) /* FRT-013 */
 /* ----------------------------------------------------------- the runner */
 static int cfg_allows(const struct run_cfg *cfg, const struct tfw_case *c)
 {
-    if ((cfg->sel != NULL) && (strcmp(cfg->sel, "all") != 0) &&
-        (strcmp(c->id, cfg->sel) != 0) && (strcmp(c->group, cfg->sel) != 0)) {
+    const struct tfw_run_req *r = cfg->req;
+    int selected = 0;
+
+    if (r->all != 0U) {
+        selected = 1;
+    } else {
+        for (size_t i = 0U; i < r->id_count; i++) {
+            if (strcmp(c->id, r->ids[i]) == 0) {
+                selected = 1;
+                break;
+            }
+        }
+        if (selected == 0) {
+            for (size_t i = 0U; i < r->group_count; i++) {
+                if (strcmp(c->group, r->groups[i]) == 0) {
+                    selected = 1;
+                    break;
+                }
+            }
+        }
+    }
+    if (selected == 0) {
         return 0;
     }
     if (cfg->level_ok[(int)c->level] == 0U) {
@@ -296,7 +430,7 @@ static int cfg_allows(const struct run_cfg *cfg, const struct tfw_case *c)
     return 1;
 }
 
-static void run_case(size_t i, const struct run_cfg *cfg)
+static void run_case(size_t i, struct run_cfg *cfg)
 {
     const struct tfw_case *c = &s.order[i];
     struct tfw_out out;
@@ -335,6 +469,23 @@ static void run_case(size_t i, const struct run_cfg *cfg)
             return;
         }
     }
+    /* SAFE-012: link-mode destructive runs confirm every case, not only
+     * the Run.allow_destructive option. */
+    if ((c->destructive != 0U) && (g_set.mode == HWVAL_MODE_LINK)) {
+        char question[160];
+        (void)snprintf(question, sizeof(question),
+                       "destructive test %s (%s): %s",
+                       c->id, c->group, c->title);
+        if (hwval_cli_ask_yn(question, g_set.operator_timeout_s) <= 0) {
+            struct tfw_out so = { {0}, {0}, {0} };
+            (void)snprintf(so.reason, sizeof(so.reason),
+                           "NO_OPERATOR (destructive not confirmed)");
+            result_fill(i, TFW_SKIP, 0U, &so);
+            result_emit_line(c, &s_persist.row[i]);
+            return;
+        }
+    }
+
     if (hwval_test_abort_requested()) {
         struct tfw_out ao = { {0}, {0}, {0} };
         (void)snprintf(ao.reason, sizeof(ao.reason), "abort");
@@ -344,9 +495,12 @@ static void run_case(size_t i, const struct run_cfg *cfg)
     }
 
     t0 = xTaskGetTickCount();
+    s.current_id = c->id;
     s.running = 1;
-    ((struct run_cfg *)(uintptr_t)cfg)->executed++;    r = c->fn(&out);
+    cfg->executed++;
+    r = c->fn(&out);
     s.running = 0;
+    s.current_id = NULL;
     result_fill(i, r, (uint32_t)(xTaskGetTickCount() - t0), &out);
     if (r == TFW_FAIL) {
         s.failed++;
@@ -355,17 +509,54 @@ static void run_case(size_t i, const struct run_cfg *cfg)
     result_emit_line(c, &s_persist.row[i]);
 }
 
-static void run_suite(const struct run_cfg *cfg)
+static uint32_t count_allowed(const struct run_cfg *cfg)
 {
-    s.failed = 0;
-    s.abort_requested = 0;
-    s.last_progress_tick = (uint32_t)xTaskGetTickCount();
+    uint32_t n = 0U;
 
     for (size_t i = 0U; i < s.count; i++) {
+        if ((i >= cfg->start_index) && (cfg_allows(cfg, &s.order[i]) != 0)) {
+            n++;
+        }
+    }
+    return n;
+}
+
+static void run_suite(struct run_cfg *cfg)
+{
+    uint32_t total = count_allowed(cfg);
+    uint32_t index = 0U;
+    uint32_t pass = 0U, fail = 0U, skip = 0U, na = 0U;
+    int outer = (s.suite_depth == 0);
+
+    s.failed = 0;
+    s.abort_requested = 0;
+    s.active = 1;
+    s.last_progress_tick = (uint32_t)xTaskGetTickCount();
+    s.suite_depth++;
+    if (outer && (s_hooks != NULL) && (s_hooks->run_started != NULL)) {
+        s_hooks->run_started(total, cfg->resumed);
+    }
+
+    for (size_t i = cfg->start_index; i < s.count; i++) {
         if (cfg_allows(cfg, &s.order[i]) == 0) {
             continue;
         }
+        if (outer && (s_hooks != NULL) && (s_hooks->test_started != NULL)) {
+            s_hooks->test_started(&s.order[i], index, total);
+        }
+        index++;
         run_case(i, cfg);
+
+        const hwval_test_result_t *r = &s_persist.row[i];
+        switch (r->result) {
+        case TFW_PASS: pass++; break;
+        case TFW_FAIL: fail++; break;
+        case TFW_SKIP: skip++; break;
+        default:        na++;   break;
+        }
+        if (outer && (s_hooks != NULL) && (s_hooks->test_result != NULL)) {
+            s_hooks->test_result(&s.order[i], r);
+        }
         if (hwval_test_abort_requested()) {
             break;
         }
@@ -374,13 +565,25 @@ static void run_suite(const struct run_cfg *cfg)
         }
     }
     s.running = 0;
+    s.active = 0;
+    if (outer && (s_hooks != NULL) && (s_hooks->run_finished != NULL)) {
+        s_hooks->run_finished(index, pass, fail, skip, na,
+                              hwval_test_abort_requested(), cfg->resumed);
+    }
+    s.suite_depth--;
+    if (cfg->print_summary) {
+        (void)printf("%lu test(s) executed, failures=%lu\r\n",
+                     (unsigned long)cfg->executed, (unsigned long)s.failed);
+    }
 }
 
 void hwval_test_all(void) /* boot suite (SAFE-005): no operator/destructive */
 {
+    struct tfw_run_req req = { 0 };
     struct run_cfg cfg = { 0 };
 
-    cfg.sel            = "all";
+    req.all = 1U;
+    cfg.req            = &req;
     cfg.level_ok[0]    = 1U;
     cfg.level_ok[1]    = 1U;
     cfg.level_ok[2]    = 1U;
@@ -400,50 +603,94 @@ static void parse_level_bits(const char *tok, uint8_t *ok3)
     }
 }
 
-int hwval_test_run_sel(const char *selector, const char *flags)
+static void req_defaults(struct tfw_run_req *req)
 {
-    struct run_cfg cfg = { 0 };
-    uint32_t total = 0U;
+    (void)memset(req, 0, sizeof(*req));
+    req->level_ok[0]    = 1U;
+    req->level_ok[1]    = 1U;
+    req->level_ok[2]    = 1U;
+    req->operator_ok    = 1U;
+    req->destructive_ok = 0U; /* SAFE-005 */
+    req->repeat         = 1U;
+}
+
+static void req_add_selector(struct tfw_run_req *req, const char *sel)
+{
+    if (sel == NULL) {
+        return;
+    }
+    if (strcmp(sel, "all") == 0) {
+        req->all = 1U;
+        return;
+    }
+    /* A selector is an id when it has the TFW-001 dotted form, else a group. */
+    if (strchr(sel, '.') != NULL) {
+        if (req->id_count < HWVAL_RUN_MAX_SELECT) {
+            (void)snprintf(req->ids[req->id_count], HWVAL_RUN_SELECT_LEN,
+                           "%s", sel);
+            req->id_count++;
+        }
+    } else if (req->group_count < HWVAL_RUN_MAX_SELECT) {
+        (void)snprintf(req->groups[req->group_count], HWVAL_RUN_SELECT_LEN,
+                       "%s", sel);
+        req->group_count++;
+    }
+}
+
+static void req_parse_flags(struct tfw_run_req *req, const char *flags)
+{
     char flagbuf[128];
     char *tok;
     char *save = NULL;
 
-    cfg.sel            = selector;
-    cfg.level_ok[0]    = 1U; /* defaults: all levels        */
-    cfg.level_ok[1]    = 1U;
-    cfg.level_ok[2]    = 1U;
-    cfg.operator_ok    = 1U; /* operator allowed            */
-    cfg.destructive_ok = 0U; /* destructive NOT (SAFE-005)  */
-    cfg.repeat         = 1U;
-
-    if (flags != NULL) {
-        (void)snprintf(flagbuf, sizeof(flagbuf), "%s", flags);
-        tok = strtok_r(flagbuf, " \t", &save);
-        while (tok != NULL) {
-            if (strncmp(tok, "--level ", 8U) == 0) {
-                cfg.level_ok[0] = cfg.level_ok[1] = cfg.level_ok[2] = 0U;
-                parse_level_bits(tok + 8U, cfg.level_ok);
-            } else if (strcmp(tok, "--no-operator") == 0) {
-                cfg.operator_ok = 0U;
-            } else if (strcmp(tok, "--destructive") == 0) {
-                cfg.destructive_ok = 1U; /* SAFE-005: only with flag */
-            } else if (strcmp(tok, "--no-destructive") == 0) {
-                cfg.destructive_ok = 0U;
-            } else if (strcmp(tok, "--until-fail") == 0) {
-                cfg.until_fail = 1;
-            } else if (strncmp(tok, "--repeat ", 9U) == 0) {
-                cfg.repeat = (uint32_t)strtoul(tok + 9U, NULL, 10);
-                if (cfg.repeat == 0U) { cfg.repeat = 1U; }
-            }
-            tok = strtok_r(NULL, " \t", &save);
-        }
+    if (flags == NULL) {
+        return;
     }
+    (void)snprintf(flagbuf, sizeof(flagbuf), "%s", flags);
+    tok = strtok_r(flagbuf, " \t", &save);
+    while (tok != NULL) {
+        if (strncmp(tok, "--level ", 8U) == 0) {
+            req->level_ok[0] = req->level_ok[1] = req->level_ok[2] = 0U;
+            parse_level_bits(tok + 8U, req->level_ok);
+        } else if (strcmp(tok, "--no-operator") == 0) {
+            req->operator_ok = 0U;
+        } else if (strcmp(tok, "--destructive") == 0) {
+            req->destructive_ok = 1U; /* SAFE-005: only with flag */
+        } else if (strcmp(tok, "--no-destructive") == 0) {
+            req->destructive_ok = 0U;
+        } else if (strcmp(tok, "--until-fail") == 0) {
+            req->until_fail = 1U;
+        } else if (strncmp(tok, "--repeat ", 9U) == 0) {
+            req->repeat = (uint32_t)strtoul(tok + 9U, NULL, 10);
+            if (req->repeat == 0U) { req->repeat = 1U; }
+        }
+        tok = strtok_r(NULL, " \t", &save);
+    }
+}
 
-    if ((cfg.level_ok[0] | cfg.level_ok[1] | cfg.level_ok[2]) == 0U) {
+static int run_req_sync(const struct tfw_run_req *req, int print_summary)
+{
+    struct run_cfg cfg = { 0 };
+    uint32_t total = 0U;
+
+    if ((req->level_ok[0] | req->level_ok[1] | req->level_ok[2]) == 0U) {
         return 0; /* nonsensical filter */
     }
+    cfg.req            = req;
+    cfg.level_ok[0]    = req->level_ok[0];
+    cfg.level_ok[1]    = req->level_ok[1];
+    cfg.level_ok[2]    = req->level_ok[2];
+    cfg.operator_ok    = req->operator_ok;
+    cfg.destructive_ok = req->destructive_ok;
+    cfg.repeat         = (req->repeat != 0U) ? req->repeat : 1U;
+    cfg.until_fail     = req->until_fail;
+    cfg.start_index    = req->start_index;
+    cfg.resumed        = req->resumed;
+    cfg.print_summary  = (uint8_t)print_summary;
 
     for (uint32_t rep = 0U; rep < cfg.repeat; rep++) {
+        cfg.start_index = (rep == 0U) ? req->start_index : 0U;
+        cfg.resumed = (uint8_t)((rep == 0U) ? req->resumed : 0U);
         run_suite(&cfg);
         total += cfg.executed;
         if (cfg.until_fail && (s.failed > 0)) {
@@ -451,6 +698,199 @@ int hwval_test_run_sel(const char *selector, const char *flags)
         }
     }
     return (int)total;
+}
+
+int hwval_test_run_sel(const char *selector, const char *flags)
+{
+    struct tfw_run_req req;
+
+    req_defaults(&req);
+    req_add_selector(&req, selector);
+    req_parse_flags(&req, flags);
+    return run_req_sync(&req, 0);
+}
+
+/* ------------------------------------------------------------ job queue */
+void hwval_test_runner_init(void)
+{
+    if (s_job_sem == NULL) {
+        s_job_sem = xSemaphoreCreateBinary();
+    }
+}
+
+int hwval_test_submit_selector(const char *selector, const char *flags)
+{
+    struct tfw_run_req req;
+
+    req_defaults(&req);
+    req_add_selector(&req, selector);
+    req_parse_flags(&req, flags);
+    if (hwval_test_active() != 0) {
+        return -1;
+    }
+    return hwval_test_submit(&req);
+}
+
+int hwval_test_submit(const struct tfw_run_req *req)
+{
+    hwval_test_runner_init();
+    if ((req == NULL) || (s_job_sem == NULL)) {
+        return -1;
+    }
+    taskENTER_CRITICAL();
+    if ((s_job_queued != 0) || (s.active != 0) || (s_job_running != 0)) {
+        taskEXIT_CRITICAL();
+        return -1; /* LINK-011: BUSY while a run is active */
+    }
+    s_job = *req;
+    s_job_queued = 1;
+    taskEXIT_CRITICAL();
+    (void)xSemaphoreGive(s_job_sem);
+    return 0;
+}
+
+int hwval_test_runner_poll(uint32_t timeout_ms)
+{
+    hwval_test_runner_init();
+    if (s_job_sem == NULL) {
+        vTaskDelay(pdMS_TO_TICKS(timeout_ms));
+        return 0;
+    }
+    if (xSemaphoreTake(s_job_sem, pdMS_TO_TICKS(timeout_ms)) != pdPASS) {
+        return 0;
+    }
+    taskENTER_CRITICAL();
+    s_job_queued = 0;
+    s_job_running = 1;
+    taskEXIT_CRITICAL();
+    (void)run_req_sync(&s_job, 1);
+    s_job_running = 0;
+    return 1;
+}
+
+int hwval_test_active(void) { return (s.active != 0) || (s_job_running != 0); }
+const char *hwval_test_current_id(void) { return s.current_id; }
+
+void hwval_test_set_hooks(const struct tfw_hooks *hooks) { s_hooks = hooks; }
+
+/* ---------------------------------------------------------- TFW-020/021 -- */
+static size_t report_add(char *out, size_t cap, size_t used,
+                         const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+
+    if (used >= cap) {
+        return cap;
+    }
+    va_start(ap, fmt);
+    n = vsnprintf(out + used, cap - used, fmt, ap);
+    va_end(ap);
+    if (n < 0) {
+        return used;
+    }
+    if ((size_t)n >= (cap - used)) {
+        return cap - 1U;
+    }
+    return used + (size_t)n;
+}
+
+static int bcd_value(uint32_t v)
+{
+    return (int)((v & 0xFU) + 10U * ((v >> 4U) & 0xFU));
+}
+
+size_t hwval_test_report(char *out, size_t cap, uint16_t *pass_out,
+                         uint16_t *fail_out, uint16_t *skip_out,
+                         uint16_t *na_out)
+{
+    uint32_t pass = 0U, fail = 0U, skip = 0U, na = 0U;
+    size_t used = 0U;
+
+    if ((out == NULL) || (cap == 0U)) {
+        return 0U;
+    }
+    out[0] = '\0';
+
+    for (size_t i = 0U; i < hwval_test_count(); i++) {
+        switch (hwval_test_result_of(i)->result) {
+        case TFW_FAIL: fail++; break;
+        case TFW_SKIP: skip++; break;
+        case TFW_NA:   na++;   break;
+        default:       pass++; break;
+        }
+    }
+    used = report_add(out, cap, used,
+        "REPORT HWVAL v%s uid=%08lX%08lX%08lX\r\n",
+        hwval_version_string(),
+        (unsigned long)HAL_GetUIDw0(), (unsigned long)HAL_GetUIDw1(),
+        (unsigned long)HAL_GetUIDw2());
+    used = report_add(out, cap, used,
+        "PASS=%lu FAIL=%lu SKIP=%lu N/A=%lu of %lu\r\n",
+        (unsigned long)pass, (unsigned long)fail, (unsigned long)skip,
+        (unsigned long)na, (unsigned long)hwval_test_count());
+    if ((RCC->BDCR & RCC_BDCR_RTCEN) != 0U) {
+        uint32_t tr = RTC->TR;
+        uint32_t dr = RTC->DR;
+        used = report_add(out, cap, used,
+            "DATE 20%02d-%02d-%02d %02d:%02d:%02d\r\n",
+            bcd_value((dr >> 16U) & 0xFFU), bcd_value((dr >> 8U) & 0x1FU),
+            bcd_value(dr & 0x3FU), bcd_value((tr >> 16U) & 0x3FU),
+            bcd_value((tr >> 8U) & 0x7FU), bcd_value(tr & 0x7FU));
+    }
+
+    /* per-group totals (TFW-020) */
+    for (size_t i = 0U; i < hwval_test_count(); i++) {
+        const struct tfw_case *c = hwval_test_at(i);
+        int seen = 0;
+        uint32_t gp = 0U, gf = 0U, gs = 0U, gn = 0U;
+        for (size_t j = 0U; j < i; j++) {
+            if (strcmp(c->group, hwval_test_at(j)->group) == 0) {
+                seen = 1;
+                break;
+            }
+        }
+        if (seen != 0) {
+            continue;
+        }
+        for (size_t j = 0U; j < hwval_test_count(); j++) {
+            if (strcmp(c->group, hwval_test_at(j)->group) != 0) {
+                continue;
+            }
+            switch (hwval_test_result_of(j)->result) {
+            case TFW_FAIL: gf++; break;
+            case TFW_SKIP: gs++; break;
+            case TFW_NA:   gn++; break;
+            default:       gp++; break;
+            }
+        }
+        used = report_add(out, cap, used,
+            "GROUP %s PASS=%lu FAIL=%lu SKIP=%lu N/A=%lu\r\n",
+            c->group, (unsigned long)gp, (unsigned long)gf,
+            (unsigned long)gs, (unsigned long)gn);
+    }
+
+    for (size_t i = 0U; i < hwval_test_count(); i++) {
+        const hwval_test_result_t *r = hwval_test_result_of(i);
+        if (r->result == TFW_FAIL) {
+            used = report_add(out, cap, used, "FAIL %s: %s\r\n",
+                              hwval_test_at(i)->id, r->reason);
+        }
+    }
+    for (size_t i = 0U; i < hwval_test_count(); i++) {
+        const hwval_test_result_t *r = hwval_test_result_of(i);
+        if (r->result == TFW_SKIP) {
+            used = report_add(out, cap, used, "SKIP %s: %s\r\n",
+                              hwval_test_at(i)->id, r->reason);
+        }
+    }
+    used = report_add(out, cap, used, "REPORT END %s\r\n",
+                      (fail > 0U) ? "FAIL" : "PASS");
+    if (pass_out != NULL) { *pass_out = (uint16_t)pass; }
+    if (fail_out != NULL) { *fail_out = (uint16_t)fail; }
+    if (skip_out != NULL) { *skip_out = (uint16_t)skip; }
+    if (na_out != NULL)   { *na_out = (uint16_t)na; }
+    return used;
 }
 
 /* ------------------------------------------------- TFW-007: bootcheck -- */

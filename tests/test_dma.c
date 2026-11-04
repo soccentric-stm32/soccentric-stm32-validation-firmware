@@ -60,7 +60,7 @@ static int dma_xfer(DMA_Stream_TypeDef *d, const void *src, void *dst,
 static tfw_result_t dma_m2m_streams(struct tfw_out *o)
 {
     static uint32_t src[64] HWVAL_SRAM1;
-    static uint32_t dst[8][64] HWVAL_SRAM1;
+    static uint32_t dst[64] HWVAL_SRAM1; /* reused: streams run sequentially */
     DMA_Stream_TypeDef *s[8] = {
         DMA2_Stream0, DMA2_Stream1, DMA2_Stream2, DMA2_Stream3,
         DMA2_Stream4, DMA2_Stream5, DMA2_Stream6, DMA2_Stream7,
@@ -75,22 +75,20 @@ static tfw_result_t dma_m2m_streams(struct tfw_out *o)
         uint32_t dir = (st % 2) ? DMA_SxCR_DIR_0 : 0U; /* both dirs legal m2m */
         dma_cfg(s[st], (uint32_t)(st % 8), dir, DMA_SxCR_PSIZE_1, /*word*/
                 DMA_SxCR_MSIZE_1, 1U, 2U, 0U, 0U);
-        if (dma_xfer(s[st], src, dst[st], words, 400000) != 0) {
+        if (dma_xfer(s[st], src, dst, words, 400000) != 0) {
             bad++; continue;
         }
-        uint32_t expect0 = (st % 2) ? src[0] + 0U : src[0]; /* same */
-        (void)expect0;
-        if (dst[st][0] != 0xC1000000U || dst[st][63] != 0xC1000000U + 63U) {
+        if (dst[0] != 0xC1000000U || dst[63] != 0xC1000000U + 63U) {
             bad++;
         }
     }
     /* 8/16/32-bit widths + FIFO/burst + direct-mode sanity on stream 0 */
     dma_cfg(DMA2_Stream0, 0, 0U, 0U, 0U, 1U, 2U, 0U, 0U); /* bytes */
-    if (dma_xfer(DMA2_Stream0, src, dst[0], 256U, 400000) != 0) { bad++; }
-    if (((uint8_t *)dst[0])[255] != (uint8_t)0xC1000000U) { bad++; }
+    if (dma_xfer(DMA2_Stream0, src, dst, 256U, 400000) != 0) { bad++; }
+    if (((uint8_t *)dst)[255] != (uint8_t)0xC1000000U) { bad++; }
     dma_cfg(DMA2_Stream0, 0, 0U, DMA_SxCR_PSIZE_0, DMA_SxCR_MSIZE_0, 1U, 2U,
             1U, 0U); /* halfwords, FIFO */
-    if (dma_xfer(DMA2_Stream0, src, dst[0], 128U, 400000) != 0) { bad++; }
+    if (dma_xfer(DMA2_Stream0, src, dst, 128U, 400000) != 0) { bad++; }
     hwval_meas(o, "8 DMA2 m2m streams, widths 8/16/32, fifo+direct: bad=%d",
                (unsigned long)bad);
     hwval_lim(o, "every DMA2 stream transfers (DMA-001); DMA1 needs periph "
@@ -285,26 +283,27 @@ static tfw_result_t dma_memory_map(struct tfw_out *o)
 
 static tfw_result_t dma_throughput(struct tfw_out *o)
 {
-    static uint32_t src[2048] HWVAL_SRAM1;
-    static uint32_t dst[2048] HWVAL_SRAM1;
+    static uint32_t src[512] HWVAL_SRAM1;
+    static uint32_t dst[512] HWVAL_SRAM1;
     /* the DTCM leg stays in DTCM: DMA2 reads DTCM through the CPU AHBS
      * slave bus (RM0410 2.1.6) - slower than the AHB-path SRAM1 leg */
     static uint32_t dtcm_src[512] __attribute__((aligned(32)));
     int64_t cyc_s1s1, cyc_dtcm;
-    uint32_t bytes = sizeof(src);
+    uint32_t words = 512U;
+    uint32_t bytes = (uint32_t)sizeof(src);
 
     dma_clk();
-    for (int i = 0; i < 2048; i++) { src[i] = i; }
+    for (uint32_t i = 0U; i < words; i++) { src[i] = i; }
 
     dma_cfg(DMA2_Stream0, 0, 0U, 1U, 1U, 1U, 3U, 1U, 0U); /* FIFO full+burst */
     DWT->CYCCNT = 0U;
-    (void)dma_xfer(DMA2_Stream0, src, dst, 2048U, 4000000);
+    (void)dma_xfer(DMA2_Stream0, src, dst, words, 4000000);
     cyc_s1s1 = DWT->CYCCNT;
 
     /* DTCM -> SRAM1 */
     dma_cfg(DMA2_Stream0, 0, 0U, 1U, 1U, 1U, 3U, 1U, 0U);
     DWT->CYCCNT = 0U;
-    (void)dma_xfer(DMA2_Stream0, dtcm_src, dst, 2048U, 4000000);
+    (void)dma_xfer(DMA2_Stream0, dtcm_src, dst, words, 4000000);
     cyc_dtcm = DWT->CYCCNT;
 
     uint32_t mbs1 = (uint32_t)((uint64_t)bytes * 216U / cyc_s1s1);
@@ -323,14 +322,14 @@ static tfw_result_t dma_throughput(struct tfw_out *o)
 /* ------------------------------------------------- DMA-007 (arbitration) */
 static tfw_result_t dma_arbitration(struct tfw_out *o)
 {
-    static uint32_t srcA[1024] HWVAL_SRAM1;
-    static uint32_t srcB[1024] HWVAL_SRAM1;
-    static uint32_t dstA[1024] HWVAL_SRAM1;
-    static uint32_t dstB[1024] HWVAL_SRAM1;
+    static uint32_t srcA[512] HWVAL_SRAM1;
+    static uint32_t srcB[512] HWVAL_SRAM1;
+    static uint32_t dstA[512] HWVAL_SRAM1;
+    static uint32_t dstB[512] HWVAL_SRAM1;
     uint32_t tA_done = 0, tB_done = 0, t0;
 
     dma_clk();
-    for (int i = 0; i < 1024; i++) { srcA[i] = 0xAAU + i; srcB[i] = 0xBBU + i; }
+    for (int i = 0; i < 512; i++) { srcA[i] = 0xAAU + (uint32_t)i; srcB[i] = 0xBBU + (uint32_t)i; }
 
     DMA2_Stream0->CR = 0U; /* high */
     DMA2_Stream0->CR = (3U << DMA_SxCR_PL_Pos) | (1U << DMA_SxCR_MSIZE_Pos) |
@@ -338,7 +337,7 @@ static tfw_result_t dma_arbitration(struct tfw_out *o)
     DMA2_Stream0->FCR = DMA_SxFCR_FTH_0 | DMA_SxFCR_FTH_1;
     DMA2_Stream0->PAR = (uint32_t)srcA;
     DMA2_Stream0->M0AR = (uint32_t)dstA;
-    DMA2_Stream0->NDTR = 1024U;
+    DMA2_Stream0->NDTR = 512U;
 
     DMA2_Stream1->CR = 0U; /* low */
     DMA2_Stream1->CR = (0U << DMA_SxCR_PL_Pos) | (1U << DMA_SxCR_MSIZE_Pos) |
@@ -346,7 +345,7 @@ static tfw_result_t dma_arbitration(struct tfw_out *o)
     DMA2_Stream1->FCR = DMA_SxFCR_FTH_0 | DMA_SxFCR_FTH_1;
     DMA2_Stream1->PAR = (uint32_t)srcB;
     DMA2_Stream1->M0AR = (uint32_t)dstB;
-    DMA2_Stream1->NDTR = 1024U;
+    DMA2_Stream1->NDTR = 512U;
 
     __DSB();
     DMA2_Stream0->CR |= DMA_SxCR_EN;

@@ -46,6 +46,12 @@ if(NOT EXISTS "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Inc/stm32f7xx_hal.h")
 endif()
 
 # --- Build metadata (GEN-003) ----------------------------------------------
+if(EXISTS "${CUBE_ROOT}/VERSION")
+    file(READ "${CUBE_ROOT}/VERSION" HWVAL_CUBE_VERSION)
+    string(STRIP "${HWVAL_CUBE_VERSION}" HWVAL_CUBE_VERSION)
+else()
+    set(HWVAL_CUBE_VERSION "unknown")
+endif()
 execute_process(COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse --short=12 HEAD
     OUTPUT_VARIABLE HWVAL_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 execute_process(COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR} log -1 --date=iso --format=%cd
@@ -76,6 +82,7 @@ add_compile_definitions(
     HWVAL_VERSION_STR="${HWVAL_VERSION}"
     HWVAL_SRS_ID="SRS-HWVAL-F767"
     HWVAL_GIT_COMMIT="${HWVAL_GIT_COMMIT}"
+    HWVAL_CUBE_VERSION="${HWVAL_CUBE_VERSION}"
     HWVAL_BUILD_DATE="${HWVAL_BUILD_DATE} ${HWVAL_COMMIT_DATE}")
 
 # FreeRTOS heap size, configurable at build time (FRT-006).
@@ -83,6 +90,9 @@ set(HWVAL_HEAP_KB "32" CACHE STRING "FreeRTOS heap_4 size in KB (FRT-006)")
 math(EXPR HWVAL_HEAP_BYTES "${HWVAL_HEAP_KB} * 1024")
 
 include_directories(src board tests
+    "${CMAKE_BINARY_DIR}/generated"
+    src/generated
+    third_party/flatcc/include
     "${CUBE_ROOT}/Drivers/CMSIS/Include"
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Include"
     "${CUBE_ROOT}/Drivers/STM32F7xx_HAL_Driver/Inc"
@@ -122,6 +132,9 @@ set(PROJECT_SOURCES
     src/cli.c
     src/settings.c
     src/harness.c
+    src/hwlink.c
+    src/flatcc_port.c
+    src/link.c
     board/hwval_board_pins.c
     tests/test_rtos.c
     tests/test_dev.c
@@ -191,6 +204,15 @@ list(APPEND PROJECT_SOURCES   tests/test_gfx_misc.c)
 list(APPEND PROJECT_SOURCES   tests/test_dbg_brd.c)
 list(APPEND PROJECT_SOURCES   tests/test_safe.c)
 
+# flatcc 0.6.1 runtime as released (CON-002).  Only builder, verifier and
+# emitter are linked; the project-owned arena hooks are in src/flatcc_port.c.
+set(FLATCC_ROOT "${CMAKE_SOURCE_DIR}/third_party/flatcc")
+set(FLATCC_SOURCES
+    "${FLATCC_ROOT}/src/runtime/builder.c"
+    "${FLATCC_ROOT}/src/runtime/verifier.c"
+    "${FLATCC_ROOT}/src/runtime/emitter.c"
+    "${FLATCC_ROOT}/src/runtime/refmap.c")
+
 set(DEVICE_SOURCES
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/system_stm32f7xx.c"
     "${CUBE_ROOT}/Drivers/CMSIS/Device/ST/STM32F7xx/Source/Templates/gcc/startup_stm32f767xx.s")
@@ -210,9 +232,28 @@ set(FREERTOS_SOURCES
     "${FREERTOS_ROOT}/portable/GCC/ARM_CM7/r0p1/port.c"
     "${FREERTOS_ROOT}/portable/MemMang/heap_4.c")
 
-add_executable(hwval.elf ${PROJECT_SOURCES} ${HAL_SOURCES} ${FREERTOS_SOURCES} ${DEVICE_SOURCES})
+# flatcc allocation hooks are visible everywhere (the runtime uses them).
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -include ${CMAKE_SOURCE_DIR}/src/flatcc_port.h")
+set(HWVAL_FLATCC_HEAP_KB "12" CACHE STRING "flatcc static arena size in KB")
+math(EXPR HWVAL_FLATCC_HEAP_BYTES "${HWVAL_FLATCC_HEAP_KB} * 1024")
+
+add_executable(hwval.elf ${PROJECT_SOURCES} ${HAL_SOURCES} ${FREERTOS_SOURCES}
+    ${DEVICE_SOURCES} ${FLATCC_SOURCES})
 target_compile_definitions(hwval.elf PRIVATE
-    HWVAL_RTOS_HEAP_SIZE=${HWVAL_HEAP_BYTES})
+    HWVAL_RTOS_HEAP_SIZE=${HWVAL_HEAP_BYTES}
+    HWVAL_FLATCC_HEAP_SIZE=${HWVAL_FLATCC_HEAP_BYTES}
+    FLATCC_ALLOC=hwval_flatcc_alloc
+    FLATCC_FREE=hwval_flatcc_free
+    FLATCC_REALLOC=hwval_flatcc_realloc
+    FLATCC_CALLOC=hwval_flatcc_calloc
+    FLATCC_ALIGNED_ALLOC=hwval_flatcc_aligned_alloc
+    FLATCC_ALIGNED_FREE=hwval_flatcc_aligned_free
+    FLATCC_EMITTER_ALLOC=hwval_flatcc_alloc
+    FLATCC_EMITTER_FREE=hwval_flatcc_free)
+# The generated flatcc headers and the SDK runtime use compact formatting.
+set_source_files_properties(src/link.c PROPERTIES
+    COMPILE_OPTIONS "-Wno-misleading-indentation")
+set_source_files_properties(${FLATCC_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 
 # LwIP: project-owned options/arch headers + SDK sources (warnings off;
 # the SDK is as-shipped per CON-002). NO_SYS polling, see lwipopts.h.
@@ -228,6 +269,31 @@ target_compile_options(lwip_sdk PRIVATE ${CPU_FLAGS} -O2 -w)
 target_compile_definitions(lwip_sdk PRIVATE
     STM32F767xx USE_HAL_DRIVER HSE_VALUE=8000000U)
 target_link_libraries(hwval.elf lwip_sdk)
+
+# --- HWLINK schema (LINK-012) ----------------------------------------------
+# The generated C files are committed so the container does not need a host
+# flatcc compiler.  When flatcc is available, regenerate them as part of the
+# build; the build-tree copy takes precedence over src/generated.
+find_program(FLATCC flatcc)
+if(FLATCC)
+    set(FLATCC_OUT "${CMAKE_BINARY_DIR}/generated")
+    add_custom_command(
+        OUTPUT
+            "${FLATCC_OUT}/hwlink_reader.h"
+            "${FLATCC_OUT}/hwlink_builder.h"
+            "${FLATCC_OUT}/hwlink_verifier.h"
+            "${FLATCC_OUT}/flatbuffers_common_reader.h"
+            "${FLATCC_OUT}/flatbuffers_common_builder.h"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${FLATCC_OUT}"
+        COMMAND ${FLATCC} -a -o "${FLATCC_OUT}" "${CMAKE_SOURCE_DIR}/protocol/hwlink.fbs"
+        DEPENDS "${CMAKE_SOURCE_DIR}/protocol/hwlink.fbs"
+        COMMENT "Generating HWLINK FlatBuffers C headers")
+    add_custom_target(hwlink_schema DEPENDS
+        "${FLATCC_OUT}/hwlink_reader.h"
+        "${FLATCC_OUT}/hwlink_builder.h"
+        "${FLATCC_OUT}/hwlink_verifier.h")
+    add_dependencies(hwval.elf hwlink_schema)
+endif()
 
 # GEN-006: link code and constants into flash sectors 0-10 only; the linker
 # script (ld/STM32F767ZITx_FLASH.ld) fails the build on any overlap with

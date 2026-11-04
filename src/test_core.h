@@ -122,6 +122,49 @@ typedef struct {
     char         limits[48];
 } hwval_test_result_t;
 
+/* Selection of a run requested by the CLI or HWLINK (LINK-005).  Fixed-size
+ * storage keeps the request safe to queue without allocation. */
+#define HWVAL_RUN_MAX_SELECT 16U
+#define HWVAL_RUN_SELECT_LEN 24U
+
+struct tfw_run_req {
+    char     ids[HWVAL_RUN_MAX_SELECT][HWVAL_RUN_SELECT_LEN];
+    size_t   id_count;
+    char     groups[HWVAL_RUN_MAX_SELECT][HWVAL_RUN_SELECT_LEN];
+    size_t   group_count;
+    uint8_t  all;
+    uint8_t  level_ok[3];
+    uint8_t  operator_ok;
+    uint8_t  destructive_ok;
+    uint32_t repeat;
+    uint8_t  until_fail;
+    uint32_t start_index;              /* resume after reset (LINK-010)      */
+    uint8_t  resumed;
+};
+
+/* Event hooks used by HWLINK link mode (LINK-003/006).  The hooks are called
+ * from the Runner task with the fixed-order view of the test table. */
+struct tfw_hooks {
+    void (*run_started)(uint32_t total, int resumed);
+    void (*test_started)(const struct tfw_case *c, uint32_t index,
+                         uint32_t total);
+    void (*test_result)(const struct tfw_case *c,
+                        const hwval_test_result_t *r);
+    void (*run_finished)(uint32_t total, uint32_t pass, uint32_t fail,
+                         uint32_t skip, uint32_t na, int aborted,
+                         int resumed);
+};
+
+void hwval_test_set_hooks(const struct tfw_hooks *hooks);
+
+/* Runner task support (FRT-010): create/queue jobs without allocation. */
+void hwval_test_runner_init(void);
+int  hwval_test_submit(const struct tfw_run_req *req); /* 0 ok, -1 busy */
+int  hwval_test_submit_selector(const char *selector, const char *flags);
+int  hwval_test_runner_poll(uint32_t timeout_ms);      /* 1 ran, 0 idle */
+int  hwval_test_active(void);                          /* suite in progress */
+const char *hwval_test_current_id(void);               /* prompt context   */
+
 const hwval_test_result_t *hwval_test_result_of(size_t index);
 
 /* Reset-surviving results (TFW-022): magic + CRC in .noinit; restored at
@@ -130,6 +173,11 @@ void hwval_results_clear(void);
 uint32_t hwval_results_crc(void);
 
 uint32_t crc32_buf(const uint8_t *p, size_t n);
+
+/* TFW-020/021: build the report text (overall + per-group totals, FAIL and
+ * SKIP reasons, REPORT END).  Returns the bytes used; counts are optional. */
+size_t hwval_test_report(char *out, size_t cap, uint16_t *pass,
+                         uint16_t *fail, uint16_t *skip, uint16_t *na);
 
 /* Seeded PRNG (NFR-006): deterministic fill for every test that needs
  * pseudo-random data; the seed is printed in measured fields. */

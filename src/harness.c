@@ -112,13 +112,24 @@ int hwval_harness_fitted(int index)
 
 void hwval_harness_report(void)
 {
+    uint64_t mask = hwval_harness_detected();
     int fitted = 0;
+    int verify = 0;
 
     for (uint8_t i = 0U; i < HWVAL_WIRE_TABLE_N; i++) {
-        if (hwval_harness_fitted((int)i) != 0) {
+        const struct hwval_wire *w = &hwval_wire_table[i];
+
+        if (w->verify != 0U) {
+            verify++;
+            continue;
+        }
+        if (((mask >> i) & 1ULL) != 0ULL) {
             fitted++;
+            (void)printf("  %-6s P%c%u <-> P%c%u  (%s)\r\n", w->name,
+                         'A' + w->ap, w->an, 'A' + w->bp, w->bn,
+                         w->used_by);
         }
     }
-    (void)printf("harness: %d/%d wires fitted (verify-on-bench wires "
-                 "excluded)\r\n", fitted, (int)HWVAL_WIRE_TABLE_N);
+    (void)printf("harness: %d/%d wires fitted, %d verify-on-bench wires "
+                 "excluded\r\n", fitted, (int)HWVAL_WIRE_TABLE_N, verify);
 }

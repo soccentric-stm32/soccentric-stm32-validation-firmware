@@ -21,6 +21,7 @@
 #include "fault.h"
 #include "version.h"
 #include "iwdg.h"
+#include "settings.h"
 
 static void hwval_panic_report(void);
 
@@ -118,8 +119,9 @@ static void task_watchdog(void *arg);
 void hwval_rtos_start(void)
 {
     hwval_fault_set_taskname_hook(hwval_current_task_name);
+    hwval_test_runner_init();
 
-    if (xTaskCreate(task_cli, "cli", 512, NULL, 3, NULL) != pdPASS) {
+    if (xTaskCreate(task_cli, "cli", 1024, NULL, 3, NULL) != pdPASS) {
         configASSERT(!"create cli");
     }
     if (xTaskCreate(task_runner, "runner", 4096, NULL, 2, NULL) != pdPASS) {
@@ -138,14 +140,17 @@ void hwval_rtos_start(void)
     hwval_fault_assert(__FILE__, __LINE__);
 }
 
-/* Runner: schedules the test framework (section 7); the runner body lives
- * in test_core.c via hwval_test_all() (section 5: RTOS self-tests). */
+/* Runner: executes the boot suite once, then jobs submitted by the CLI or
+ * link mode (section 7 / LINK-005).  In link mode the boot suite is skipped
+ * so the GUI owns the test schedule. */
 static void task_runner(void *arg)
 {
     (void)arg;
-    for (;;) {
+    if (g_set.mode != HWVAL_MODE_LINK) {
         hwval_test_all();
-        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+    for (;;) {
+        (void)hwval_test_runner_poll(10000U);
     }
 }
 

@@ -41,7 +41,7 @@ Line editor with backspace, Ctrl-U, Ctrl-C abort of a running test,
 | `tasks` | FreeRTOS task table + CPU time stats |
 | `log error\|warn\|info\|debug` | log level |
 | `reset [hard]` | soft reset (hard = IWDG-forced) |
-| `mode interactive\|script` | terminal mode |
+| `mode interactive\|script\|link` | terminal mode (`link` = HWLINK for HWVAL Studio, §6.4) |
 | `format text\|json` | result line format |
 | `set <k> <v>` / `get <k>` | settings (see `get` with no key) |
 | `peek <addr> [n]` / `poke ...` | manual register access (OTP read-only) |
@@ -52,6 +52,25 @@ Line editor with backspace, Ctrl-U, Ctrl-C abort of a running test,
 Results print as `RESULT <ID> <PASS|FAIL|SKIP|N/A> <ms> <reason>…`
 (TFW-010/011/012). A destructive `run` (interactive mode) asks for
 confirmation naming what changes (SAFE-005).
+
+## 2a. Link mode (HWLINK, SRS §6.4)
+
+`mode link` prints `OK link` and hands USART3 to the binary HWLINK server
+(COBS framing, CRC-32, FlatBuffers).  It implements the HWVAL message set:
+`Hello`, `Ping`, `SetBaud` (115200/921600), `Reset`, `GetDeviceInfo`,
+`ListGroups`/`ListTests` (paged), `GetHarness` (paged), `Run`, `Abort`,
+`OperatorAnswer`, `GetResults` (paged), `ClearResults`, `GetReport`,
+`GetSetting`/`SetSetting` and `EnterTextMode`, with `RunStarted`,
+`TestStarted`, `TestResult`, `OperatorPrompt`, `RunFinished`, `Progress` and
+`Log` events.  `EnterTextMode` (or a text `\r` line after 5 s without a valid
+frame, OPEN-011) returns to the text CLI.  The schema is
+`protocol/hwlink.fbs`; `src/generated/` holds the flatcc output (regenerated
+at build time when a host `flatcc` is available).
+
+If the MCU resets while link mode is active, it boots straight back into link
+mode (backup register flag) and resumes a run from the next test after the
+one that reset it; the preserved `.noinit` results are available through
+`GetResults` (LINK-010).
 
 ## 3. Script mode and JSON (used by scripts/hwtest.py)
 

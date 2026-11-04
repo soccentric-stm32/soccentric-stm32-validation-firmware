@@ -184,6 +184,11 @@ static tfw_result_t fls_art(struct tfw_out *o)
 static tfw_result_t fls_sector11(struct tfw_out *o)
 {
     uint32_t addr = HWVAL_SECTOR11_BASE;
+
+    if (hwval_flash_dual_bank() != 0) {
+        (void)snprintf(o->reason, sizeof(o->reason), "WRONG_FLASH_MODE");
+        return TFW_NA;
+    }
     static uint32_t buf[64];
     int rc;
     uint32_t eop, err;
@@ -271,6 +276,11 @@ static tfw_result_t fls_sector11(struct tfw_out *o)
 static tfw_result_t fls_prog_refuse(struct tfw_out *o)
 {
     uint32_t addr = HWVAL_SECTOR11_BASE;
+
+    if (hwval_flash_dual_bank() != 0) {
+        (void)snprintf(o->reason, sizeof(o->reason), "WRONG_FLASH_MODE");
+        return TFW_NA;
+    }
     int rc = hwval_flash_program_refuse(addr, 0x01234567U);
     uint32_t eop, err;
 

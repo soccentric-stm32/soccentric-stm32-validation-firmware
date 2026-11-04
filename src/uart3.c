@@ -15,6 +15,7 @@
 #include "task.h"
 
 static int s_ready;
+static hwval_uart3_sink_t s_sink;
 
 /* --- RX ring (CLI-002) ---------------------------------------------------- */
 #define RX_RING_SIZE 512U
@@ -126,7 +127,56 @@ void hwval_uart3_rx_wakeup(void)
     /* The CLI task polls; a semaphore wake-up lands here if needed. */
 }
 
+void hwval_uart3_set_sink(hwval_uart3_sink_t sink)
+{
+    s_sink = sink;
+}
+
+int hwval_uart3_set_baud(uint32_t baud)
+{
+    if ((!s_ready) || (baud == 0U)) {
+        return -1;
+    }
+    USART3->CR1 &= ~USART_CR1_UE;
+    USART3->BRR = (HAL_RCC_GetPCLK1Freq() + (baud / 2U)) / baud;
+    USART3->CR1 |= USART_CR1_UE;
+    return 0;
+}
+
+void hwval_uart3_drain(uint32_t timeout_ms)
+{
+    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_ms);
+
+    while (s_tx_head != s_tx_tail) {
+        if (xTaskGetTickCount() >= deadline) {
+            return;
+        }
+        vTaskDelay(1U);
+    }
+}
+
 void hwval_uart3_write(const void *buf, size_t n)
+{
+    const char *p = (const char *)buf;
+
+    if (!s_ready) {
+        return;
+    }
+    if (s_sink != NULL) {
+        if (n == 0U) {
+            while (*p != '\0') { p++; }
+            n = (size_t)(p - (const char *)buf);
+            p = (const char *)buf;
+        }
+        if (n > 0U) {
+            s_sink(p, n);
+        }
+        return;
+    }
+    hwval_uart3_write_direct(buf, n);
+}
+
+void hwval_uart3_write_direct(const void *buf, size_t n)
 {
     const char *p = (const char *)buf;
 

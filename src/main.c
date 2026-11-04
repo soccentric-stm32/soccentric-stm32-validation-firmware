@@ -24,6 +24,8 @@
 #include "mpu_setup.h"
 #include "rtos.h"
 #include "test_core.h"
+#include "link.h"
+#include "flash_ops.h"
 
 /* NFR-004: .sram1 is NOLOAD; main.c zeroes it after the MPU is up so the
  * static test buffers get their C zero-init state (startup zeroes .bss). */
@@ -56,11 +58,15 @@ int main(void)
     HAL_Init();                 /* HAL time base on TIM6 (GEN-012)           */
     hwval_clock_init();         /* GEN-004: 216 MHz, scale 1, OD, 7 WS       */
     hwval_uart3_init();         /* VCP console (USART3, section 6 builds on) */
-    hwval_version_banner();     /* GEN-003                                   */
-    hwval_reset_cause_report(); /* GEN-010                                   */
-    report_previous_fault();    /* GEN-008 evidence after fault reset        */
-    hwval_bootcheck_evaluate(); /* TFW-007: post-reset test verdicts         */
-    hwval_rtos_report_panic();  /* FRT-004/005 hook evidence after reset     */
+    hwval_link_boot_init();     /* LINK-010: previous reset was in link mode */
+    if (hwval_link_boot_active() == 0) {
+        hwval_version_banner();     /* GEN-003                               */
+        hwval_reset_cause_report(); /* GEN-010                               */
+        hwval_flash_bank_report();  /* SAFE-011: nDBANK boot warning        */
+        report_previous_fault();    /* GEN-008 evidence after fault reset    */
+        hwval_bootcheck_evaluate(); /* TFW-007: post-reset test verdicts     */
+        hwval_rtos_report_panic();  /* FRT-004/005 hook evidence after reset */
+    }
     hwval_iwdg_start(HWVAL_IWDG_TIMEOUT_MS); /* GEN-009                      */
 
     hwval_uart3_puts("HWVAL: boot ok, starting RTOS tasks (section 5)\r\n");

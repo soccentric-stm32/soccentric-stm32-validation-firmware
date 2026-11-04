@@ -31,6 +31,11 @@
 #include "iwdg.h"
 #include "harness.h"
 #include "test_core.h"
+#include "link.h"
+
+#ifndef HWVAL_CUBE_VERSION
+#define HWVAL_CUBE_VERSION "unknown"
+#endif
 
 #define HWVAL_PROMPT       "hwval> "
 #define HWVAL_LINE_MAX     128
@@ -102,10 +107,40 @@ static void cli_baud_revert_poll(void)
 }
 
 /* ------------------------------------------------- operator prompts ----- */
+static hwval_prompt_kind_t prompt_kind(const char *question)
+{
+    if (question == NULL) {
+        return HWVAL_PROMPT_YES_NO;
+    }
+    if (strstr(question, "destructive") != NULL) {
+        return HWVAL_PROMPT_DESTRUCTIVE;
+    }
+    if ((strstr(question, "B1") != NULL) || (strstr(question, "press") != NULL)) {
+        return HWVAL_PROMPT_BUTTON;
+    }
+    if ((strstr(question, "equipment") != NULL) ||
+        (strstr(question, "module") != NULL) ||
+        (strstr(question, "cable") != NULL)) {
+        return HWVAL_PROMPT_EQUIPMENT;
+    }
+    return HWVAL_PROMPT_YES_NO;
+}
+
 int hwval_cli_ask_yn(const char *question, uint32_t timeout_s)
 {
     char line[8];
 
+    if (g_set.mode == HWVAL_MODE_LINK) {
+        int rc = hwval_link_prompt(prompt_kind(question), question, "y/n",
+                                   timeout_s, line, sizeof(line));
+        if (rc == 0) {
+            return (line[0] == 'y' || line[0] == 'Y' ||
+                    line[0] == 'p' || line[0] == 'P') ? 1 : 0;
+        }
+        if (rc == -1) {
+            return -1;
+        }
+    }
     cli_printf("%s [y/n] (timeout %lus) ", question,
                (unsigned long)timeout_s);
     if (hwval_cli_ask_line(NULL, line, sizeof(line), timeout_s) < 0) {
@@ -118,9 +153,22 @@ int hwval_cli_ask_yn(const char *question, uint32_t timeout_s)
 int hwval_cli_ask_line(const char *question, char *out, size_t len,
                        uint32_t timeout_s)
 {
-    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_s * 1000U);
+    TickType_t deadline;
     size_t n = 0U;
-    int echo = (g_set.mode == HWVAL_MODE_INTERACTIVE);
+    int echo;
+
+    if (g_set.mode == HWVAL_MODE_LINK) {
+        int rc = hwval_link_prompt(HWVAL_PROMPT_LINE, question, "",
+                                   timeout_s, out, len);
+        if (rc == 0) {
+            return 0;
+        }
+        if (rc == -1) {
+            return -1;
+        }
+    }
+    deadline = xTaskGetTickCount() + pdMS_TO_TICKS(timeout_s * 1000U);
+    echo = (g_set.mode == HWVAL_MODE_INTERACTIVE);
 
     if (question != NULL) {
         cli_printf("%s", question);
@@ -201,7 +249,7 @@ static const struct cli_cmd k_cmds[] = {
     { "tasks",   cmd_tasks,   "",      "FreeRTOS tasks + run-time stats" },
     { "log",     cmd_log,     "error|warn|info|debug", "set log level" },
     { "reset",   cmd_reset,   "[hard]", "reboot (hard = via IWDG)" },
-    { "mode",    cmd_mode,    "interactive|script", "terminal mode" },
+    { "mode",    cmd_mode,    "interactive|script|link", "terminal mode" },
     { "format",  cmd_format,  "text|json", "result output format" },
     { "set",     cmd_set,     "<key> <value>", "change a setting" },
     { "get",     cmd_get,     "<key>", "show a setting" },
@@ -239,8 +287,9 @@ static void cmd_version(int argc, char **argv)
     (void)argc; (void)argv;
     cli_printf("HWVAL v%s (git %s) built %s\r\n", hwval_version_string(),
                hwval_git_commit(), hwval_build_date());
-    cli_printf("SRS %s | FreeRTOS %s | Nucleo-F767ZI STM32F767ZIT6\r\n",
-               hwval_srs_id(), hwval_freertos_version());
+    cli_printf("SRS %s | FreeRTOS %s | CubeF7 %s\r\n",
+               hwval_srs_id(), hwval_freertos_version(), HWVAL_CUBE_VERSION);
+    cli_printf("Target: Nucleo-F767ZI STM32F767ZIT6\r\n");
 }
 
 static const uint32_t k_bauds[] = { 9600, 19200, 38400, 57600, 115200,
@@ -352,8 +401,12 @@ static void cmd_run(int argc, char **argv)
             return;
         }
     }
-    int n = hwval_test_run_sel(argv[1], flags);
-    cli_printf("%d test(s) executed, failures=%d\r\n", n, hwval_test_failed());
+    int rc = hwval_test_submit_selector(argv[1], flags);
+    if (rc != 0) {
+        cli_line("ERR runner busy (wait for the current run / abort it)");
+    } else {
+        cli_line("run queued (results stream as the Runner executes)");
+    }
 }
 
 static void cmd_abort(int argc, char **argv)
@@ -372,11 +425,7 @@ static const char *res_name(tfw_result_t r)
 static void cmd_results(int argc, char **argv)
 {
     if ((argc >= 2) && (strcmp(argv[1], "clear") == 0)) {
-        for (size_t i = 0U; i < hwval_test_count(); i++) {
-            hwval_test_result_t *r = (hwval_test_result_t *)
-                                     hwval_test_result_of(i);
-            r->result = TFW_PASS; r->duration_ms = 0U; r->reason[0] = '\0';
-        }
+        hwval_results_clear();
         cli_line("results cleared");
         return;
     }
@@ -398,26 +447,11 @@ static void cmd_results(int argc, char **argv)
 
 static void cmd_report(int argc, char **argv)
 {
-    (void)argc; (void)argv;
-    size_t pass = 0U, fail = 0U, skip = 0U, na = 0U;
+    char text[2048];
 
-    for (size_t i = 0U; i < hwval_test_count(); i++) {
-        const hwval_test_result_t *r = hwval_test_result_of(i);
-        if (r->result == TFW_FAIL) { fail++; }
-        else if (r->result == TFW_SKIP) { skip++; }
-        else if (r->result == TFW_NA) { na++; }
-        else { pass++; }
-    }
-    cli_printf("REPORT HWVAL v%s uid=%08lX%08lX%08lX\r\n",
-               hwval_version_string(),
-               (unsigned long)(*(const uint32_t *)0x1FF0F420U),
-               (unsigned long)(*(const uint32_t *)0x1FF0F424U),
-               (unsigned long)(*(const uint32_t *)0x1FF0F428U));
-    cli_printf("PASS=%lu FAIL=%lu SKIP=%lu N/A=%lu of %lu\r\n",
-               (unsigned long)pass, (unsigned long)fail,
-               (unsigned long)skip, (unsigned long)na,
-               (unsigned long)hwval_test_count());
-    cli_printf("REPORT END %s\r\n", (fail > 0U) ? "FAIL" : "PASS");
+    (void)argc; (void)argv;
+    (void)hwval_test_report(text, sizeof(text), NULL, NULL, NULL, NULL);
+    hwval_uart3_write(text, 0U);
 }
 
 static void cmd_harness(int argc, char **argv)
@@ -484,7 +518,17 @@ static void cmd_mode(int argc, char **argv)
         hwval_uart3_puts("");
         return;
     }
-    cli_line("ERR unknown command (interactive|script)");
+    if (strcmp(argv[1], "link") == 0) {
+        if (g_set.mode == HWVAL_MODE_LINK) {
+            return;
+        }
+        cli_line("OK link");
+        hwval_uart3_drain(200U);
+        hwval_link_set_boot_flag(1); /* LINK-010 */
+        g_set.mode = HWVAL_MODE_LINK;
+        return;
+    }
+    cli_line("ERR unknown command (interactive|script|link)");
 }
 
 static void cmd_format(int argc, char **argv)
@@ -775,11 +819,25 @@ void hwval_cli_task(void *arg)
     (void)arg;
     editor_reset();
     s_hist_pos = 0;
-    cli_printf("\r\n%sHWVAL CLI ready%s\r\n", ok_color(), c_off());
-    editor_show(HWVAL_PROMPT);
+    if (g_set.mode != HWVAL_MODE_LINK) {
+        cli_printf("\r\n%sHWVAL CLI ready%s\r\n", ok_color(), c_off());
+        editor_show(HWVAL_PROMPT);
+    }
 
     for (;;) {
-        int c = hwval_uart3_getc();
+        int c;
+
+        if (g_set.mode == HWVAL_MODE_LINK) {
+            hwval_link_run();
+            editor_reset();
+            s_baud = (uint32_t)hwval_uart3_baud();
+            s_hist_pos = s_hist_wr;
+            hwval_uart3_puts("");
+            editor_show(HWVAL_PROMPT);
+            continue;
+        }
+
+        c = hwval_uart3_getc();
         if (c < 0) {
             cli_baud_revert_poll();
             vTaskDelay(pdMS_TO_TICKS(10));
@@ -880,6 +938,9 @@ void hwval_cli_task(void *arg)
             }
             cmd_dispatch(s_line);
             editor_reset();
+            if (g_set.mode == HWVAL_MODE_LINK) {
+                break; /* link loop takes over on the next iteration */
+            }
             hwval_uart3_puts("");
             editor_show(HWVAL_PROMPT);
             break;

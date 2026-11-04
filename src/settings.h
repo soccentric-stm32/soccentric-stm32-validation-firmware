@@ -10,7 +10,8 @@
 
 #include <stdint.h>
 
-typedef enum { HWVAL_MODE_INTERACTIVE = 0, HWVAL_MODE_SCRIPT = 1 } hwval_mode_t;
+typedef enum { HWVAL_MODE_INTERACTIVE = 0, HWVAL_MODE_SCRIPT = 1,
+               HWVAL_MODE_LINK = 2 } hwval_mode_t;
 typedef enum { HWVAL_FMT_TEXT = 0, HWVAL_FMT_JSON = 1 }         hwval_format_t;
 
 typedef struct {

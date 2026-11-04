@@ -6,7 +6,7 @@ MCU on it, operated from a terminal over the ST-LINK virtual COM port.
 
 | | |
 |---|---|
-| Status | **Feature-complete**: SRS §4–§12 + appendices implemented (commit history carries the §-references); bench validation pending |
+| Status | **Feature-complete**: SRS §4–§12 + appendices implemented, including HWLINK link mode (§6.4); bench validation pending |
 | Complication log | [COMPLICATIONS.md](COMPLICATIONS.md) |
 | Board reference | [Hardware.md](Hardware.md) (measured + reference) |
 | Build environment | [docker/README.md](docker/README.md), STM32CubeF7 v1.17.4 (FreeRTOS V10.2.0 as shipped, CL-011), LwIP 2.1.2 (as shipped) |
@@ -53,6 +53,10 @@ preferred over an interactive console: `python3 scripts/vcp_capture.py 5`.
 
 `scripts/hwtest.py` (HOST-001..005): switches the firmware to script mode +
 JSON, runs a selection, and writes `reports/hwval_<UID8>_<date>.json`/`.md`.
+HWVAL Studio uses the same VCP in **link mode** (`mode link`, HWLINK COBS +
+FlatBuffers, SRS §6.4); the schema is `protocol/hwlink.fbs` and the FlatBuffers
+runtime is vendored in `third_party/flatcc` (generated files in
+`src/generated/`).  `hwtest.py` keeps using the text CLI.
 It also hosts the equipment legs: `--cdc-echo` (USB-010), `--eth-target
 auto` (ETH-007/008 ping + TCP/UDP echo + Mbit/s), `--swo N` (DBG-004),
 `--halt-check` (WDG-004/DBG-005). Exit codes 0/1/2 (pass/fail/comms).
@@ -62,8 +66,12 @@ auto` (ETH-007/008 ping + TCP/UDP echo + Mbit/s), `--swo N` (DBG-004),
 ```
 board/            board-specific pins/wires, HAL config, LwIP opts + arch
 ld/               linker script: sectors 0-10 only, .noinit, .noncacheable,
-                  .sram1 (NFR-004 DMA-buffer section)
-src/              platform code, one file per concern (clock, faults, net...)
+                  .sram1 (NFR-004 DMA/link-buffer section)
+protocol/         shared HWLINK FlatBuffers schema (hwlink.fbs)
+src/              platform code, one file per concern (clock, faults, net,
+                  link mode...)
+src/generated/    flatcc headers generated from protocol/hwlink.fbs
+third_party/      vendored flatcc 0.6.1 runtime (CON-002)
 tests/            one file per hardware group (SRS section 8)
 docs/             user guide + generated test catalogue
 ```

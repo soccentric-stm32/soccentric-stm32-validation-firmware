@@ -13,6 +13,7 @@
 #include "hwval_board.h"
 #include "flash_ops.h"
 #include "test_core.h"
+#include "uart3.h"
 
 #define FLASH_SEC11_BASE HWVAL_SECTOR11_BASE
 #define FLASH_SEC11_LEN  (HWVAL_FLASH_END - HWVAL_SECTOR11_BASE)
@@ -20,6 +21,20 @@
 static volatile uint32_t s_eop_count;
 static volatile uint32_t s_err_count;
 static volatile uint32_t s_last_err;
+
+int hwval_flash_dual_bank(void)
+{
+    return ((FLASH->OPTCR & FLASH_OPTCR_nDBANK) == 0U) ? 1 : 0;
+}
+
+void hwval_flash_bank_report(void)
+{
+    if (hwval_flash_dual_bank() != 0) {
+        hwval_uart3_puts("WARNING: flash nDBANK=0 (dual-bank mode); "
+                         "destructive flash tests report N/A "
+                         "WRONG_FLASH_MODE (SAFE-011)");
+    }
+}
 
 int hwval_flash_range_in_sector11(uint32_t addr, uint32_t len)
 {
