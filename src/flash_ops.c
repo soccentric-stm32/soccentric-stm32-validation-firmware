@@ -86,6 +86,26 @@ static int flash_wait_done(uint32_t timeout_loops)
     return 0;
 }
 
+static uint32_t flash_error_flags(void)
+{
+    return FLASH->SR & (FLASH_SR_PGPERR | FLASH_SR_PGAERR |
+                        FLASH_SR_WRPERR | FLASH_SR_OPERR |
+                        FLASH_SR_ERSERR);
+}
+
+static void flash_clear_errors(void)
+{
+    FLASH->SR = FLASH_SR_PGPERR | FLASH_SR_PGAERR | FLASH_SR_WRPERR |
+                FLASH_SR_OPERR | FLASH_SR_ERSERR;
+}
+
+static void flash_cache_invalidate(uint32_t addr, uint32_t len)
+{
+    uint32_t start = addr & ~31U;
+    uint32_t end = (addr + len + 31U) & ~31U;
+    SCB_InvalidateDCache_by_Addr((uint32_t *)start, (int32_t)(end - start));
+}
+
 static void flash_psize_x32(void)
 {
     MODIFY_REG(FLASH->CR, FLASH_CR_PSIZE, FLASH_PSIZE_WORD);
@@ -111,13 +131,21 @@ int hwval_flash_erase_sector11(void)
     FLASH->CR |= FLASH_CR_STRT;
 
     if (flash_wait_done(20000000U) != 0) {
+        __HAL_FLASH_DISABLE_IT(FLASH_IT_EOP | FLASH_IT_ERR);
+        SET_BIT(FLASH->CR, FLASH_CR_LOCK);
         return -3; /* erase timeout */
     }
     __HAL_FLASH_DISABLE_IT(FLASH_IT_EOP | FLASH_IT_ERR);
+    int rc = (flash_error_flags() != 0U) ? -4 : 0;
+    /* SER/SNB are not self-clearing; a later PG write would otherwise be
+     * interpreted as another erase. */
+    CLEAR_BIT(FLASH->CR, FLASH_CR_SER | FLASH_CR_SNB);
+    flash_clear_errors();
+    flash_cache_invalidate(HWVAL_SECTOR11_BASE, FLASH_SEC11_LEN);
 
     /* lock again */
     SET_BIT(FLASH->CR, FLASH_CR_LOCK);
-    return 0;
+    return rc;
 }
 
 int hwval_flash_program_sector11(uint32_t addr, const uint32_t *data,
@@ -134,21 +162,30 @@ int hwval_flash_program_sector11(uint32_t addr, const uint32_t *data,
         return -2;
     }
     flash_psize_x32();
+    SET_BIT(FLASH->CR, FLASH_CR_PG);
     __HAL_FLASH_ENABLE_IT(FLASH_IT_EOP | FLASH_IT_ERR);
 
+    uint32_t start = addr;
+    int rc = 0;
     for (uint32_t i = 0U; i < words; i++) {
         *(volatile uint32_t *)addr = data[i];
         __DSB();
         if (flash_wait_done(2000000U) != 0) {
-            __HAL_FLASH_DISABLE_IT(FLASH_IT_EOP | FLASH_IT_ERR);
-            SET_BIT(FLASH->CR, FLASH_CR_LOCK);
-            return -3;
+            rc = -3;
+            break;
+        }
+        if (flash_error_flags() != 0U) {
+            rc = -4;
+            break;
         }
         addr += 4U;
     }
+    CLEAR_BIT(FLASH->CR, FLASH_CR_PG);
+    flash_clear_errors();
     __HAL_FLASH_DISABLE_IT(FLASH_IT_EOP | FLASH_IT_ERR);
+    flash_cache_invalidate(start, words * 4U);
     SET_BIT(FLASH->CR, FLASH_CR_LOCK);
-    return 0;
+    return rc;
 }
 
 int hwval_flash_program_refuse(uint32_t addr, uint32_t value)
@@ -160,6 +197,7 @@ int hwval_flash_program_refuse(uint32_t addr, uint32_t value)
         FLASH->KEYR = 0xCDEF89ABU;
     }
     flash_psize_x32();
+    SET_BIT(FLASH->CR, FLASH_CR_PG);
     s_err_count = 0U;
     s_last_err  = 0U;
     *(volatile uint32_t *)addr = value;
@@ -167,6 +205,7 @@ int hwval_flash_program_refuse(uint32_t addr, uint32_t value)
     if (flash_wait_done(2000000U) != 0) {
         rc = -3;
     }
+    CLEAR_BIT(FLASH->CR, FLASH_CR_PG);
     SET_BIT(FLASH->SR, FLASH_SR_PGPERR | FLASH_SR_PGAERR |
              FLASH_SR_ERSERR | FLASH_SR_WRPERR | FLASH_SR_OPERR);
     SET_BIT(FLASH->CR, FLASH_CR_LOCK);
