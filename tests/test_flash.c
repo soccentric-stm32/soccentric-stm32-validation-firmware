@@ -27,10 +27,18 @@ static uint32_t flash_crc32_periph(uint32_t addr, uint32_t bytes)
     (void)memset(&hc, 0, sizeof(hc));
     __HAL_RCC_CRC_CLK_ENABLE();
     hc.Instance = CRC;
-    hc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_ENABLE;
-    hc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_ENABLE;
-    hc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_NONE;
-    hc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_DISABLE;
+    /* CRC-32/ISO-HDLC (the same algorithm as crc32_buf and zlib.crc32):
+     * poly 0x04C11DB7, init 0xFFFFFFFF, byte-wise input reflection and
+     * reflected output.  The reset defaults (no reflection) can never
+     * match the CPU reference. */
+    hc.Init.DefaultPolynomialUse = DEFAULT_POLYNOMIAL_DISABLE;
+    hc.Init.GeneratingPolynomial = 0x04C11DB7U;
+    hc.Init.DefaultInitValueUse = DEFAULT_INIT_VALUE_DISABLE;
+    hc.Init.InitValue = 0xFFFFFFFFU;
+    hc.Init.InputDataInversionMode = CRC_INPUTDATA_INVERSION_BYTE;
+    hc.Init.OutputDataInversionMode = CRC_OUTPUTDATA_INVERSION_ENABLE;
+    hc.Init.CRCLength = CRC_POLYLENGTH_32B;
+    hc.InputDataFormat = CRC_INPUTDATA_FORMAT_WORDS;
     (void)HAL_CRC_Init(&hc);
     return HAL_CRC_Calculate(&hc, (uint32_t *)addr, bytes / 4U);
 }
@@ -46,6 +54,7 @@ extern uint32_t __flash_image_end; /* from the linker script */
 static tfw_result_t fls_crc_image(struct tfw_out *o)
 {
     uint32_t bytes = (uint32_t)&__flash_image_end - 0x08000000U;
+    bytes &= ~3U;   /* the CRC unit reads whole words; compare like for like */
     uint32_t per = flash_crc32_periph(0x08000000U, bytes);
     uint32_t cpu = flash_crc32_cpu(0x08000000U, bytes);
 
