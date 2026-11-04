@@ -78,8 +78,11 @@ const struct hwval_pin hwval_pin_table[HWVAL_PIN_TABLE_N] = {
     { 3, 5,  "morpho",   "USART2_TX",              PIN_OWNER_FREE,     1 },
     { 3, 6,  "morpho",   "USART2_RX",              PIN_OWNER_FREE,     1 },
     { 3, 7,  "morpho",   "SDMMC1_CMD / free",      PIN_OWNER_FREE,     1 },
-    { 3, 8,  "morpho",   "SDMMC1_D0",              PIN_OWNER_FREE,     1 },
-    { 3, 9,  "morpho",   "SDMMC1_D1",              PIN_OWNER_FREE,     1 },
+    /* PD8/PD9 are USART3 TX/RX on the ST-LINK VCP (CON-005).  The GPIO
+     * test must never drive them, even though the board also routes them
+     * to the SDMMC1 connector. */
+    { 3, 8,  "morpho",   "USART3_TX (VCP)",        PIN_OWNER_CONSOLE,  0 },
+    { 3, 9,  "morpho",   "USART3_RX (VCP)",        PIN_OWNER_CONSOLE,  0 },
     { 3, 10, "CN12",     "USART3_TX (ST-LINK VCP)", PIN_OWNER_CONSOLE, 0 },
     { 3, 11, "CN12",     "USART3_RX (ST-LINK VCP)", PIN_OWNER_CONSOLE, 0 },
     { 3, 12, "morpho",   "SAI1_FS_A / TIM4_CH1",   PIN_OWNER_PERIPH,   1 },
