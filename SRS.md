@@ -105,9 +105,9 @@ are done by the A/B bootloader [BOOT], which HWVAL does not run under.
 | [LAN8742A] | Microchip, LAN8742A Ethernet PHY datasheet |
 | [FRTOS] | FreeRTOS V10.2.0 reference manual (shipped middleware of [CubeF7]) | |
 | [DOCKER] | [docker/README.md](docker/README.md) — build environment |
-| [GUI] | [soccentric-stm32-validation-gui/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-validation-gui/blob/HEAD/SRS.md) — SRS-GUI-F767, HWVAL Studio host GUI |
-| [LINK] | [soccentric-stm32-validation-gui/SRS.md, Appendix A](https://github.com/soccentric-stm32/soccentric-stm32-validation-gui/blob/HEAD/SRS.md#appendix-a--hwlink-protocol) — HWLINK protocol (normative) |
-| [BOOT] | [soccentric-stm32-bootloader/SRS.md](https://github.com/soccentric-stm32/soccentric-stm32-bootloader/blob/HEAD/SRS.md) — SRS-BOOT-F767, A/B bootloader |
+| [GUI] | [validation-gui/SRS.md](https://github.com/soccentric-stm32/validation-gui/blob/HEAD/SRS.md) — SRS-GUI-F767, HWVAL Studio host GUI |
+| [LINK] | [validation-gui/SRS.md, Appendix A](https://github.com/soccentric-stm32/validation-gui/blob/HEAD/SRS.md#appendix-a--hwlink-protocol) — HWLINK protocol (normative) |
+| [BOOT] | [bootloader/SRS.md](https://github.com/soccentric-stm32/bootloader/blob/HEAD/SRS.md) — SRS-BOOT-F767, A/B bootloader |
 
 ---
 
