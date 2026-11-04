@@ -297,7 +297,7 @@ static tfw_result_t ram_bkpsram_march(struct tfw_out *o)
      * are on and its clock is enabled; without all three the writes are
      * ignored and the march always fails. */
     SET_BIT(PWR->CR1, PWR_CR1_DBP);
-    SET_BIT(PWR->CR1, PWR_CR1_BREN);
+    SET_BIT(PWR->CSR1, PWR_CSR1_BRE);
     SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_BKPSRAMEN);
     __DSB();
     rc = march_c_minus(b, words, &why);
