@@ -220,6 +220,12 @@ static tfw_result_t fls_sector11(struct tfw_out *o)
     /* patterns: 0x00000000, 0x55555555, 0xAAAAAAAA, address-in-word */
     static const uint32_t pats[3] = { 0x00000000U, 0x55555555U, 0xAAAAAAAAU };
     for (unsigned p = 0U; p < 3U; p++) {
+        /* Programmed bits can only go 1 -> 0; erase before each pattern. */
+        rc = hwval_flash_erase_sector11();
+        if (rc != 0) {
+            hwval_fail(o, "erase before pat%u rc=%d", p, rc);
+            return TFW_FAIL;
+        }
         for (uint32_t i = 0U; i < 64U; i++) {
             buf[i] = pats[p];
         }
@@ -234,6 +240,11 @@ static tfw_result_t fls_sector11(struct tfw_out *o)
                 return TFW_FAIL;
             }
         }
+    }
+    rc = hwval_flash_erase_sector11();
+    if (rc != 0) {
+        hwval_fail(o, "erase before address-in-word rc=%d", rc);
+        return TFW_FAIL;
     }
     for (uint32_t i = 0U; i < 64U; i++) {
         buf[i] = addr + i * 4U; /* address-in-word */
@@ -289,7 +300,20 @@ static tfw_result_t fls_prog_refuse(struct tfw_out *o)
         (void)snprintf(o->reason, sizeof(o->reason), "WRONG_FLASH_MODE");
         return TFW_NA;
     }
-    int rc = hwval_flash_program_refuse(addr, 0x01234567U);
+    /* The target must actually be programmed: erase, write one word, then
+     * try to program it again with different data. */
+    uint32_t first = 0x01234567U;
+    int rc = hwval_flash_erase_sector11();
+    if (rc != 0) {
+        hwval_fail(o, "erase rc=%d", rc);
+        return TFW_FAIL;
+    }
+    rc = hwval_flash_program_sector11(addr, &first, 1U);
+    if (rc != 0) {
+        hwval_fail(o, "setup program rc=%d", rc);
+        return TFW_FAIL;
+    }
+    rc = hwval_flash_program_refuse(addr, 0x89ABCDEFU);
     uint32_t eop, err;
 
     hwval_flash_count_get(&eop, &err);
