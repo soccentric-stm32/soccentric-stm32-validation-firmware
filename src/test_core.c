@@ -556,7 +556,9 @@ static void run_suite(struct run_cfg *cfg)
             continue;
         }
         if (outer && (s_hooks != NULL) && (s_hooks->test_started != NULL)) {
-            s_hooks->test_started(&s.order[i], index, total);
+            /* index is the position in this filtered run; i is the absolute
+             * table position used for the resume record. */
+            s_hooks->test_started(&s.order[i], index, total, (uint32_t)i);
         }
         index++;
         run_case(i, cfg);
@@ -663,9 +665,13 @@ static void req_parse_flags(struct tfw_run_req *req, const char *flags)
     (void)snprintf(flagbuf, sizeof(flagbuf), "%s", flags);
     tok = strtok_r(flagbuf, " \t", &save);
     while (tok != NULL) {
-        if (strncmp(tok, "--level ", 8U) == 0) {
+        /* strtok_r splits "--level S,L" into two tokens; take the value
+         * from the next token instead of looking for a space in this one. */
+        if (strcmp(tok, "--level") == 0) {
+            tok = strtok_r(NULL, " \t", &save);
+            if (tok == NULL) { break; }
             req->level_ok[0] = req->level_ok[1] = req->level_ok[2] = 0U;
-            parse_level_bits(tok + 8U, req->level_ok);
+            parse_level_bits(tok, req->level_ok);
         } else if (strcmp(tok, "--no-operator") == 0) {
             req->operator_ok = 0U;
         } else if (strcmp(tok, "--destructive") == 0) {
@@ -674,8 +680,10 @@ static void req_parse_flags(struct tfw_run_req *req, const char *flags)
             req->destructive_ok = 0U;
         } else if (strcmp(tok, "--until-fail") == 0) {
             req->until_fail = 1U;
-        } else if (strncmp(tok, "--repeat ", 9U) == 0) {
-            req->repeat = (uint32_t)strtoul(tok + 9U, NULL, 10);
+        } else if (strcmp(tok, "--repeat") == 0) {
+            tok = strtok_r(NULL, " \t", &save);
+            if (tok == NULL) { break; }
+            req->repeat = (uint32_t)strtoul(tok, NULL, 10);
             if (req->repeat == 0U) { req->repeat = 1U; }
         }
         tok = strtok_r(NULL, " \t", &save);

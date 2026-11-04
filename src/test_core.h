@@ -152,7 +152,7 @@ struct tfw_run_req {
 struct tfw_hooks {
     void (*run_started)(uint32_t total, int resumed);
     void (*test_started)(const struct tfw_case *c, uint32_t index,
-                         uint32_t total);
+                         uint32_t total, uint32_t absolute_index);
     void (*test_result)(const struct tfw_case *c,
                         const hwval_test_result_t *r);
     void (*run_finished)(uint32_t total, uint32_t pass, uint32_t fail,

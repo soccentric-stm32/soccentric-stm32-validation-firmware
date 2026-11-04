@@ -709,11 +709,13 @@ static void hook_run_started(uint32_t total, int resumed)
 }
 
 static void hook_test_started(const struct tfw_case *c, uint32_t index,
-                              uint32_t total)
+                              uint32_t total, uint32_t absolute_index)
 {
     s_run_done = index;
     s_run_total = total;
-    persist_progress(index + 1U);
+    /* Resume position is an absolute index into the ordered table, not the
+     * filtered position shown in TestStarted (LINK-010). */
+    persist_progress(absolute_index + 1U);
     if (!link_begin()) { return; }
     flatbuffers_string_ref_t id =
         flatbuffers_string_create_str(&s_builder, c->id);
