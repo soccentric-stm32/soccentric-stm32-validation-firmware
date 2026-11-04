@@ -16,6 +16,7 @@
 #include "test_core.h"
 #include "flash_ops.h"
 #include "clock.h"
+#include "fault.h"
 
 /* wrong-key helper in src/flash_ops.c */
 void hwval_flash_wrong_key_lock(void);
@@ -346,7 +347,12 @@ static tfw_result_t fls_unlock_lock(struct tfw_out *o)
         return TFW_FAIL;
     }
 
-    /* wrong key: lock persists until reset -> do the reset (TFW-007) */
+    /* Wrong key: lock persists until reset.  On the F7 the wrong KEYR
+     * sequence can raise a BusFault, so arm the bootcheck and a reset
+     * action *before* the write; otherwise the fault halts and the IWDG
+     * resets with no verdict (FLS-007). */
+    hwval_bootcheck_arm(0xF100U, TFW_PASS);
+    hwval_fault_set_action(HWVAL_FAULT_RESET);
     hwval_flash_wrong_key_lock();
     if (READ_BIT(FLASH->CR, FLASH_CR_LOCK) == 0U) {
         hwval_fail(o, "wrong key did not relock");
@@ -354,7 +360,6 @@ static tfw_result_t fls_unlock_lock(struct tfw_out *o)
     }
     hwval_meas(o, "unlock/lock ok; relocked by wrong key -> MCU reset now");
     hwval_lim(o, "wrong-key lock is cleared only by reset [RM0410]");
-    hwval_bootcheck_arm(0xF100U, TFW_PASS); /* verdict after reset */
     vTaskDelay(pdMS_TO_TICKS(20));
     NVIC_SystemReset();
     return TFW_SKIP; /* unreachable */
