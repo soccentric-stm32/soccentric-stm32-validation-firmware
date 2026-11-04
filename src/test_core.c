@@ -94,6 +94,13 @@ static void result_fill(size_t i, tfw_result_t r, uint32_t ms,
     (void)snprintf(s_persist.row[i].limits,
                    sizeof(s_persist.row[i].limits), "%s",
                    (o != NULL) ? o->limits : "");
+
+    /* TFW-022: publish the table before a test can reset the MCU.  Without
+     * the count and CRC the next boot rejects the whole table and every
+     * result is lost. */
+    s_persist.count = s.count;
+    s_persist.crc = hwval_results_crc();
+    __DSB();
 }
 
 static const char *res_name(tfw_result_t r)

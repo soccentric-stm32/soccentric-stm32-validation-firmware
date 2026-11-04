@@ -324,11 +324,8 @@ static tfw_result_t pwr_standby(struct tfw_out *o)
     (void)o;
     /* Destructive to RAM state: whole system restarts. Arm TFW-007 with a
      * special hash: bootcheck verifies SBF after the reset (PWR-007). */
-    RTC->WPR = 0xCAU; RTC->WPR = 0x53U;
-    RTC->BKP0R = 0xB007U;
-    RTC->BKP1R = 0x5B01U; /* hash: post-standby SBF check (bootcheck) */
-    RTC->BKP2R = TFW_PASS;
-    RTC->WPR = 0xFFU;
+    /* Hash 0x5B01: post-standby SBF check (bootcheck). */
+    hwval_bootcheck_arm(0x5B01U, TFW_PASS);
 
     lse_needed_for_rtc();
     (void)rtc_wut_arm(2U);

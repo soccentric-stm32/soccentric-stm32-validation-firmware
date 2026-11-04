@@ -319,10 +319,8 @@ static tfw_result_t ram_bkpsram_retention(struct tfw_out *o)
 
     /* Arm the bootcheck with the pattern in backup registers, then reset.
      * bootcheck_evaluate() verifies BKPSRAM after the reset (TFW-007). */
+    hwval_bootcheck_arm(BOOTCHECK_HASH_RAM009, TFW_PASS);
     RTC->WPR = 0xCAU; RTC->WPR = 0x53U;
-    RTC->BKP0R = 0xB007U;
-    RTC->BKP1R = BOOTCHECK_HASH_RAM009;
-    RTC->BKP2R = TFW_PASS;
     RTC->BKP3R = BKPSRAM_PAT_LO;
     RTC->BKP4R = BKPSRAM_PAT_HI;
     RTC->WPR = 0xFFU;

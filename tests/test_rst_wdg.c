@@ -45,11 +45,7 @@ static tfw_result_t rst_flags_boot(struct tfw_out *o)
 static tfw_result_t rst_software_reset(struct tfw_out *o)
 {
     /* Arm: bootcheck 0x5C01 verifies SFTRSTF set at the next boot. */
-    RTC->WPR = 0xCAU; RTC->WPR = 0x53U;
-    RTC->BKP0R = 0xB007U;
-    RTC->BKP1R = 0x5C01U;
-    RTC->BKP2R = TFW_PASS;
-    RTC->WPR = 0xFFU;
+    hwval_bootcheck_arm(0x5C01U, TFW_PASS);
     vTaskDelay(pdMS_TO_TICKS(30));
     NVIC_SystemReset();
     (void)o;
@@ -140,10 +136,8 @@ static tfw_result_t rst_peripheral_reset(struct tfw_out *o)
 /* -------------------------------------------------- WDG-001/002 -------- */
 static void iwdg_arm_bootcheck(uint32_t hash, uint32_t expect_s)
 {
+    hwval_bootcheck_arm(hash, TFW_PASS);
     RTC->WPR = 0xCAU; RTC->WPR = 0x53U;
-    RTC->BKP0R = 0xB007U;
-    RTC->BKP1R = hash;
-    RTC->BKP2R = TFW_PASS;
     RTC->BKP3R = RTC->TR;     /* armed at this calendar second */
     RTC->BKP4R = expect_s;    /* timeout to verify after reset  */
     RTC->WPR = 0xFFU;
