@@ -105,10 +105,18 @@ pipeline {
         stage('Flash layout') {
             steps {
                 sh '''
-                    scripts/docker-dev.sh run arm-none-eabi-readelf -h /work/build/hwval.elf > build/readelf-h.txt
-                    cat build/readelf-h.txt
-                    grep -q "Entry point address:.*0x8000000" build/readelf-h.txt
-                    echo "flash layout: HWVAL is linked standalone at 0x08000000"
+                    scripts/docker-dev.sh run arm-none-eabi-readelf -l -W /work/build/hwval.elf > build/readelf-l.txt
+                    cat build/readelf-l.txt
+                    python3 - <<'PY'
+from pathlib import Path
+
+rows = [line.split() for line in Path("build/readelf-l.txt").read_text().splitlines()]
+loads = [row for row in rows if row[:1] == ["LOAD"]]
+if not any(len(row) >= 3 and row[2] == "0x08000000" for row in loads):
+    raise SystemExit("flash layout: no LOAD segment at 0x08000000")
+
+print("flash layout: HWVAL is linked standalone at 0x08000000")
+PY
                 '''
             }
         }
