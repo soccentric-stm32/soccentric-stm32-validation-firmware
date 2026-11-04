@@ -110,7 +110,9 @@ static void build_regions(struct ram_region *r)
     uint32_t dtcm_words = HWVAL_DTCMRAM_SIZE / 4U;
     uint32_t data_lo = (uint32_t)&_sdata / 4U;
     uint32_t bss_end = (uint32_t)&_ebss / 4U;
-    uint32_t stack_lo = ((uint32_t)&_estack - 0x1000U) / 4U;
+    /* Keep a guard below the MSP: interrupts use this stack while the
+     * March runs, and 4 KB (the linker minimum) is too tight. */
+    uint32_t stack_lo = ((uint32_t)&_estack - 0x2000U) / 4U;
     uint32_t stack_hi = (uint32_t)&_estack / 4U;
     r[1] = (struct ram_region){ "DTCM", (volatile uint32_t *)HWVAL_DTCMRAM_BASE,
                                 dtcm_words, 2,
