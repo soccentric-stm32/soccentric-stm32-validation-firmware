@@ -306,10 +306,10 @@ static bool link_send_hello(uint16_t seq)
     uint64_t uid = ((uint64_t)HAL_GetUIDw0() << 32U) |
                    (uint64_t)HAL_GetUIDw1();
     hwlink_HelloReply_ref_t reply = hwlink_HelloReply_create(
-        &s_builder, hwlink_Role_HWVAL, name, version, commit, build, detail,
-        uid, devid & 0xFFFU, devid >> 16U, hwlink_FlashMode_SINGLE_BANK,
+        &s_builder, hwlink_Role_HWVAL, name, version, commit, build, uid,
+        devid & 0xFFFU, devid >> 16U, hwlink_FlashMode_SINGLE_BANK,
         (uint16_t)HWLINK_PROTOCOL_MAJOR, (uint16_t)HWLINK_PROTOCOL_MINOR,
-        (uint16_t)HWLINK_MAX_FRAME);
+        (uint16_t)HWLINK_MAX_FRAME, detail);
     return link_end(hwlink_Body_as_HelloReply(reply), seq,
                     HWLINK_FLAG_RESPONSE, 1);
 }
