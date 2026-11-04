@@ -120,11 +120,6 @@ static void build_regions(struct ram_region *r)
 }
 
 #define SRAM1_FREE_WORDS ((304U * 1024U) / 4U)
-/* SRAM1 free part: 0x20020000..0x2006BFFF (before .noinit) */
-static struct ram_region s_sram1 = {
-    "SRAM1", (volatile uint32_t *)HWVAL_SRAM1_BASE, SRAM1_FREE_WORDS, 0,
-    { {0,0},{0,0} },
-};
 /* SRAM2 free part 0x2007C000..0x2007DFFF (.noncacheable at 0x2007E000) */
 static struct ram_region s_sram2 = {
     "SRAM2", (volatile uint32_t *)HWVAL_SRAM2_BASE, 8U * 1024U / 4U, 0,
@@ -178,7 +173,20 @@ static tfw_result_t ram_groups(struct tfw_out *o)
     if (test_region(&regs[1], o) != 0) {     /* RAM-002 DTCM */
         return TFW_FAIL;
     }
-    if (test_region(&s_sram1, o) != 0) {     /* RAM-003 SRAM1 */
+    /* RAM-003: .sram1 holds the DMA/DMA2D/ADC buffers; march them with the
+     * save/restore path instead of overwriting them with March C-. */
+    extern uint32_t __sram1_start, __sram1_end;
+    struct ram_region sram1 = {
+        "SRAM1", (volatile uint32_t *)HWVAL_SRAM1_BASE, SRAM1_FREE_WORDS, 0,
+        { {0,0},{0,0} },
+    };
+    uint32_t sram1_used = (uint32_t)&__sram1_end - (uint32_t)&__sram1_start;
+    if (sram1_used > 0U) {
+        sram1.used_ranges = 1U;
+        sram1.used[0][0] = (uint32_t)&__sram1_start / 4U;
+        sram1.used[0][1] = sram1_used / 4U;
+    }
+    if (test_region(&sram1, o) != 0) {       /* RAM-003 SRAM1 */
         return TFW_FAIL;
     }
     if (test_region(&s_sram2, o) != 0) {     /* RAM-004 SRAM2 */
