@@ -293,10 +293,15 @@ static tfw_result_t ram_bkpsram_march(struct tfw_out *o)
     int rc;
 
     __HAL_RCC_PWR_CLK_ENABLE();
-    CLEAR_BIT(PWR->CR1, PWR_CR1_DBP); /* access off backup domain first */
-    /* regulator guaranteed OFF for the destructive march */
+    /* The backup SRAM is inaccessible unless DBP and the backup regulator
+     * are on and its clock is enabled; without all three the writes are
+     * ignored and the march always fails. */
+    SET_BIT(PWR->CR1, PWR_CR1_DBP);
+    SET_BIT(PWR->CR1, PWR_CR1_BREN);
+    SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_BKPSRAMEN);
+    __DSB();
     rc = march_c_minus(b, words, &why);
-    hwval_meas(o, "4 KB backup SRAM march (BRE off)");
+    hwval_meas(o, "4 KB backup SRAM march (BRE on)");
     hwval_lim(o, "March C- clean; content destroyed (destructive)");
     if (rc != 0) {
         hwval_fail(o, "%s", why);
