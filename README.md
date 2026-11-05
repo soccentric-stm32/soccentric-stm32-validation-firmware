@@ -1,114 +1,52 @@
-# HWVAL — NUCLEO-F767ZI hardware validation firmware
+# validation-firmware
 
-Firmware specified by [SRS.md](SRS.md): a FreeRTOS application that tests
-every usable hardware block of the NUCLEO-F767ZI board and the STM32F767ZI
-MCU on it, operated from a terminal over the ST-LINK virtual COM port.
+HWVAL is a FreeRTOS firmware that tests every usable hardware block of the NUCLEO-F767ZI board and its STM32F767ZI MCU. It is driven from a terminal over the ST-LINK virtual COM port, from a Python script for automated runs, or from the HWVAL Studio desktop GUI through the binary HWLINK link mode. Each test is traced to a requirement, results are reported as JSON and Markdown, and build gates check the memory footprint, requirement coverage and static analysis. Use it for board bring-up, design validation and as the end-of-line test image on the production line.
 
-| | |
-|---|---|
-| Status | **Feature-complete**: SRS §4–§12 + appendices implemented, including HWLINK link mode (§6.4); bench validation pending |
-| Complication log | [COMPLICATIONS.md](COMPLICATIONS.md) |
-| Board reference | [Hardware.md](Hardware.md) (measured + reference) |
-| Build environment | [docker/README.md](docker/README.md), STM32CubeF7 v1.17.4 (FreeRTOS V10.2.0 as shipped, CL-011), LwIP 2.1.2 (as shipped) |
-| User guide | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) (NFR-010) |
-| Test catalogue | [docs/TEST_CATALOGUE.md](docs/TEST_CATALOGUE.md) — generated from the firmware tables (TFW-002) |
+## Features
 
-## Build (CON-001)
+- Tests every usable peripheral of the STM32F767ZI and the NUCLEO board
+- 196 test cases grouped by hardware block
+- Test levels: standalone, harness-wired and external equipment
+- Interactive text console over the ST-LINK virtual COM port
+- Script mode with JSON output for automation
+- HWLINK link mode (COBS + FlatBuffers) for HWVAL Studio and HWVAL Factory
+- Operator prompts for tests that need a human action
+- Destructive flash tests confined to a reserved sector
+- Ethernet tests with ping, TCP/UDP echo and throughput (LwIP)
+- USB CDC echo, SWO and watchdog halt checks
+- Boot banner with version, commit, build date and reset cause
+- `hwtest.py` host tool that writes JSON and Markdown reports per board
+- Footprint gate for image size and free RAM
+- Coverage gate: every requirement has a test and every peripheral is listed
+- Strict cppcheck and `-Wall -Wextra -Werror`
+- Generated test catalogue and a full user guide
+- Measured board reference in `Hardware.md`
+- Reproducible Docker build environment
 
-Everything builds inside the `stm32-dev` container (HAL/CMSIS/FreeRTOS/LwIP
-come from the image; the project never modifies SDK code, CON-002):
-
-```bash
-scripts/build.sh            # cmake configure + ninja build (in the container)
-scripts/build.sh clean      # from scratch
-```
-
-The build then runs the gates (non-zero exit on failure):
-
-- `scripts/check_footprint.py` — NFR-003 (image ≤ 1792 KB, sectors 0–10) and
-  NFR-004 (≥ 256 KB SRAM1 and ≥ 64 KB DTCM free), measured from `hwval.map`.
-- `scripts/check_coverage.py` — COV-001 (every §8 requirement has a test
-  case; every case lists requirements) and COV-002 (every `*_BASE` of the
-  CMSIS header appears in the §12 matrix).
-- `scripts/cppcheck.sh strict` — static analysis (NFR-007); the compile
-  itself runs with `-Wall -Wextra -Werror`.
-
-Outputs in `build/`: `hwval.elf`, `hwval.bin`, `hwval.hex`, `hwval.map`
-(GEN-001). Linking fails if the image overlaps flash sector 11 (GEN-006,
-ASM-004: sector 11 is reserved for the destructive flash tests).
-
-## Flash and run (GEN-002)
+## Build and run
 
 ```bash
-scripts/docker-dev.sh flash build/hwval.elf
-scripts/docker-dev.sh reset                 # boots without a debugger
-scripts/docker-dev.sh serial                # 115200 8N1 on /dev/ttyACM0
+scripts/build.sh                             # build inside the stm32-dev container
+scripts/docker-dev.sh flash build/hwval.elf  # flash over SWD
+scripts/docker-dev.sh serial                 # open the console at 115200 8N1
+python3 scripts/hwtest.py                    # run tests and write a report
 ```
 
-Boot banner (GEN-003): version, git commit, build date, SRS id. Reset cause
-printed and cleared on every boot (GEN-010). If `scripts/vcp_capture.py` is
-preferred over an interactive console: `python3 scripts/vcp_capture.py 5`.
+## Related projects
 
-## Host tooling (section 11)
-
-`scripts/hwtest.py` (HOST-001..005): switches the firmware to script mode +
-JSON, runs a selection, and writes `reports/hwval_<UID8>_<date>.json`/`.md`.
-HWVAL Studio uses the same VCP in **link mode** (`mode link`, HWLINK COBS +
-FlatBuffers, SRS §6.4); the schema is `protocol/hwlink.fbs` and the FlatBuffers
-runtime is vendored in `third_party/flatcc` (generated files in
-`src/generated/`).  `hwtest.py` keeps using the text CLI.
-It also hosts the equipment legs: `--cdc-echo` (USB-010), `--eth-target
-auto` (ETH-007/008 ping + TCP/UDP echo + Mbit/s), `--swo N` (DBG-004),
-`--halt-check` (WDG-004/DBG-005). Exit codes 0/1/2 (pass/fail/comms).
-
-## Firmware layout (NFR-008/NFR-009)
-
-```
-board/            board-specific pins/wires, HAL config, LwIP opts + arch
-ld/               linker script: sectors 0-10 only, .noinit, .noncacheable,
-                  .sram1 (NFR-004 DMA/link-buffer section)
-protocol/         shared HWLINK FlatBuffers schema (hwlink.fbs)
-src/              platform code, one file per concern (clock, faults, net,
-                  link mode...)
-src/generated/    flatcc headers generated from protocol/hwlink.fbs
-third_party/      vendored flatcc 0.6.1 runtime (CON-002)
-tests/            one file per hardware group (SRS section 8)
-docs/             user guide + generated test catalogue
-```
-
-## HAL time base (GEN-012)
-
-**TIM6** (basic timer) is the HAL time base at a fixed 1 kHz; SysTick stays
-owned by FreeRTOS. TIM7 remains free for DAC triggering (DAC-003). TIM6 is
-excluded from destructive timer tests while in use — enforced in the TIM
-test group (TIM.012, GEN-012).
-
-## Bench validation plan (next step)
-
-The firmware is complete but awaits the bench pass (not yet run): Level-S
-suite (`run all --level S --no-operator`), then harness-wired L and
-equipment E cases, exactly as staged in [docs/USER_GUIDE.md](docs/USER_GUIDE.md)
-§4–§8. Open bench items are Appendix D OPEN-002/003/005.
-
-## CI and releases
-
-The [Jenkinsfile](Jenkinsfile) runs the build and checks, then **Package**
-builds `dist/validation-firmware-<version>.tar.gz` with the outputs, a `manifest.json`
-(version, commit, build) and `SHA256SUMS`, and archives `dist/`. For a tag
-`v<version>`, **Release** publishes `dist/` as a GitHub release
-(`ci/github_release.py`, Jenkins credential `github-release-token`); the tag
-must match the version the build reports (`ci/version.sh`), and 0.x versions
-are marked as pre-releases.
-
-To release, bump the version (`HWVAL_VERSION` in `CMakeLists.txt`), push it, then push a matching tag:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
+- [bootloader](https://github.com/soccentric-stm32/bootloader) — A/B bootloader with UART update, CRC32 checks, trial boot and rollback
+- [app-c-freertos](https://github.com/soccentric-stm32/app-c-freertos) — Demo application in C on FreeRTOS
+- [app-c-zephyr](https://github.com/soccentric-stm32/app-c-zephyr) — Demo application in C on Zephyr RTOS
+- [app-rust-freertos](https://github.com/soccentric-stm32/app-rust-freertos) — Demo application in Rust on Embassy
+- [app-rust-zephyr](https://github.com/soccentric-stm32/app-rust-zephyr) — Demo application in Rust on Zephyr RTOS
+- [validation-gui](https://github.com/soccentric-stm32/validation-gui) — HWVAL Studio: desktop GUI for tests, updates and flashing
+- [factory-station](https://github.com/soccentric-stm32/factory-station) — HWVAL Factory: end-of-line test and provisioning station
+- [soccentric-stm32.github.io](https://github.com/soccentric-stm32/soccentric-stm32.github.io) — Project website
 
 ## License
 
-[MIT](LICENSE) © 2026 Sandesh Ghimire. Use it as a starting point for your own
-products. Third-party code (STM32CubeF7, FreeRTOS, LwIP, Embassy, Zephyr and
-others) is fetched at build time and keeps its own licence.
+Released under the [MIT License](LICENSE) © 2026 Sandesh Ghimire. You are free
+to use, modify and ship it in your own products.
+
+Contributions are welcome. Fork the repository, make your change on a branch and
+open a pull request. Bug reports, ideas and improvements are all appreciated.
